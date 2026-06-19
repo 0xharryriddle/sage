@@ -1,0 +1,32 @@
+# RQ4: Rollback correctness — in-window rollback succeeds,
+# past-deadline abort is refused, no absolute-final reversion.
+strategy = "Sage"
+
+[simulation]
+seed = 0
+max_height = 30
+mean_delay_micros = 40
+max_events = 300_000
+
+[validators]
+n = 10
+f = 3
+
+[migration]
+h_d = 4
+h_c = 10
+h_r = 25
+kappa = 8
+tau_blocks = 1
+
+[workload]
+state_accounts = 16
+initial_balance = 1000
+txs_per_block = 5
+
+[adversary]
+partition_enabled = false
+partition_start_height = 0
+partition_duration_blocks = 0
+partition_split = 0
+byzantine_count = 0

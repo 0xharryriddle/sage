@@ -1,0 +1,35 @@
+[workspace]
+members = [
+    "crates/sage-core",
+    "crates/sage-manifest",
+    "crates/sage-consensus",
+    "crates/sage-controller",
+    "crates/sage-sim",
+    "crates/sage-stats",
+    "crates/sage-experiments",
+    "crates/sage-store",
+    "crates/sage-network",
+    "crates/sage-node",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/0xharryriddle/sage"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+sha2 = "0.10"
+rand = "0.8"
+rand_chacha = "0.3"
+clap = { version = "4", features = ["derive"] }
+csv = "1"
+toml = "0.8"
+proptest = "1"
+
+[profile.release]
+debug = 1
+lto = "thin"

@@ -1,0 +1,25 @@
+[package]
+name = "sage-node"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+sage-core = { path = "../sage-core" }
+sage-consensus = { path = "../sage-consensus" }
+sage-controller = { path = "../sage-controller" }
+sage-manifest = { path = "../sage-manifest" }
+sage-store = { path = "../sage-store" }
+sage-network = { path = "../sage-network" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[features]
+# Real ed25519 signatures over the cutover certificate are ON by default for
+# the multi-process testbed (M1). Disable with --no-default-features to fall
+# back to the simulated signature scheme.
+default = ["real-crypto"]
+real-crypto = ["sage-manifest/real-crypto"]
+
+[dev-dependencies]
+tempfile = "3"

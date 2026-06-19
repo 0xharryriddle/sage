@@ -1,0 +1,45 @@
+# LaTeX build byproducts
+/docs/*.aux
+/docs/*.log
+/docs/*.out
+/docs/*.fls
+/docs/*.fdb_latexmk
+/docs/*.synctex.gz
+/docs/paper/build/**
+!/docs/paper/build/.gitkeep
+
+# Rust/build outputs
+/target/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Private workspace context - not part of the public artifact
+/AGENTS.md
+/docs/README.md
+/docs/plans/**
+/docs/rebuttal/**
+/docs/reviews/**
+/docs/roadmap/**
+/docs/engineering/**
+/docs/*_PLAN.md
+/docs/experiment_guide.md
+/docs/journal_experiment_plan.md
+/docs/remaining_advanced_work_plan.md
+/docs/rust_file_level_rpd_plan.md
+/docs/rust_implementation_plan.md
+/docs/PUBLISHABILITY_ASSESSMENT.md
+/docs/paper_artifact_alignment_review.md
+/reviews/**
+
+# Local tool scratch files
+/.codex/
+/.claude/
+/.cursor/
+/.hermes/
+/.mcp_agentmemory/
+/.graphify/
+/graphify/
+/**/.DS_Store

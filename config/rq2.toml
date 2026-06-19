@@ -1,0 +1,40 @@
+# RQ2: Adversarial partition safety
+# Tests whether SAGE prevents cross-boundary forks under partition
+# while HardFork/Blind produce conflicts.
+strategy = "Sage"
+
+[simulation]
+seed = 0
+max_height = 30
+mean_delay_micros = 50
+max_events = 300_000
+
+# n=10, f=2 -> BFT quorum = 2f+1 = 5. A balanced 5/5 partition split leaves
+# BOTH sides holding quorum, so a blind (non-CutCert) cutover is exposed to a
+# disjoint-quorum fork window. Splits of 2 or 3 do not expose either side.
+[validators]
+n = 10
+f = 2
+
+[migration]
+h_d = 5
+h_c = 15
+h_r = 25
+kappa = 8
+tau_blocks = 1
+
+[workload]
+state_accounts = 16
+initial_balance = 1000
+txs_per_block = 5
+
+[adversary]
+partition_enabled = true
+# Partition begins exactly at the cutover height: the chain runs clean to h_c,
+# blind strategies swap to the target engine, then the partition isolates the
+# two sides. Only a balanced split (5/5 with f=2 -> quorum 5) leaves both sides
+# holding quorum, exposing the disjoint-quorum fork window.
+partition_start_height = 15
+partition_duration_blocks = 6
+partition_split = 5
+byzantine_count = 0

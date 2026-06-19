@@ -1,0 +1,36 @@
+strategy = "Sage"
+
+[simulation]
+seed = 0
+max_height = 40
+mean_delay_micros = 40
+max_events = 500_000
+# Stop-the-world snapshot+restart cost at the upgrade height. Only StopTheWorld
+# uses this; it halts finalization for this simulated-time window so the service
+# interruption is observed in the finalization-gap metric. Sized well above the
+# ~40us normal block cadence so the contrast against zero-halt strategies is
+# unambiguous (8 ms ~= a conservative real snapshot/restart of a small chain).
+stw_downtime_micros = 8_000
+
+[validators]
+n = 20
+f = 6
+
+[migration]
+h_d = 10
+h_c = 30
+h_r = 40
+kappa = 8
+tau_blocks = 1
+
+[workload]
+state_accounts = 16
+initial_balance = 1000
+txs_per_block = 10
+
+[adversary]
+partition_enabled = false
+partition_start_height = 2
+partition_duration_blocks = 2
+partition_split = 2
+byzantine_count = 0

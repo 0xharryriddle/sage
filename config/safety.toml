@@ -1,0 +1,33 @@
+# Adversarial safety config — tuned for fork production
+# n=6, f=1, split=3: each partition side has quorum (3 >= 3)
+# HardFork strategy can produce forks under this configuration
+strategy = "Sage"
+
+[simulation]
+seed = 0
+max_height = 10
+mean_delay_micros = 50
+max_events = 500_000
+
+[validators]
+n = 6
+f = 1
+
+[migration]
+h_d = 1
+h_c = 4
+h_r = 10
+kappa = 1
+tau_blocks = 1
+
+[workload]
+state_accounts = 8
+initial_balance = 1000
+txs_per_block = 3
+
+[adversary]
+partition_enabled = true
+partition_start_height = 4
+partition_duration_blocks = 7
+partition_split = 3
+byzantine_count = 0

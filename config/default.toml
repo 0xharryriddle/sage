@@ -1,0 +1,30 @@
+strategy = "Sage"
+
+[simulation]
+seed = 0
+max_height = 8
+mean_delay_micros = 100
+max_events = 100_000
+
+[validators]
+n = 6
+f = 1
+
+[migration]
+h_d = 2
+h_c = 3
+h_r = 6
+kappa = 3
+tau_blocks = 1
+
+[workload]
+state_accounts = 16
+initial_balance = 1000
+txs_per_block = 5
+
+[adversary]
+partition_enabled = false
+partition_start_height = 2
+partition_duration_blocks = 2
+partition_split = 2
+byzantine_count = 0

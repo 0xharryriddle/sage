@@ -1,0 +1,33 @@
+# RQ3: Kappa sensitivity — how shadow-validation threshold affects
+# unsafe cutover probability and migration length.
+# Vary kappa across runs to measure detection power.
+strategy = "Sage"
+
+[simulation]
+seed = 0
+max_height = 50
+mean_delay_micros = 40
+max_events = 500_000
+
+[validators]
+n = 20
+f = 6
+
+[migration]
+h_d = 10
+h_c = 30
+h_r = 45
+kappa = 4
+tau_blocks = 1
+
+[workload]
+state_accounts = 32
+initial_balance = 1000
+txs_per_block = 10
+
+[adversary]
+partition_enabled = false
+partition_start_height = 0
+partition_duration_blocks = 0
+partition_split = 0
+byzantine_count = 0
