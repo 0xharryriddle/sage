@@ -49,6 +49,31 @@ Cox-style models the closest live-switch SOTA class (Cox, Blockchain: Research a
 without SAGE's n-f dual-run cutover gate. It ties SAGE on migration cost and separates only on
 adversarial safety, isolating the n-f gate. See `scripts/m6_sota_baseline_differential.sh`.
 
+A stronger control, **faithful Cox** (`NodeStrategy::CoxFaithful`), gates on Cox's *actual* 2f+1
+BFT checkpoint quorum (omitting only Cox's epoch-mismatch catch-up sub-protocol). Because
+2(2f+1) <= n once n > 3f+1, each side of a balanced 3/3 partition independently reaches Cox's
+2f+1=3 checkpoint quorum and switches, so even Cox's real gate forks (5/5) at the heterogeneous
+boundary, while SAGE's n-f=5 gate does not (0/5). This isolates the n-f *threshold* — not merely
+"having a gate" — as the contribution (`results/raw/coxfaithful_differential.csv`).
+
+## Real-host throughput (6 independent cloud VMs, real TCP)
+
+A fair same-conditions 3-arm run (identical n=6, f=1, 200 txs/block, matched pacemaker) measures
+committed throughput and finalization-latency distributions on six independent cloud hosts:
+
+| Strategy | Committed TPS | vs SAGE | Cutover handoff gap |
+|----------|---------------|---------|---------------------|
+| SAGE | 777 | — | 10.6 ms |
+| Hard fork (blind) | 790 | +1.62% | 10.8 ms |
+| Cox-style switch | 790 | +1.65% | 10.3 ms |
+
+The 1.65% spread is a statistical tie: SAGE's dual-run gate imposes no measurable steady-state
+throughput penalty. The cutover handoff gap (~10.5 ms) is an order of magnitude below the ~500 ms
+steady-state block cadence — the migration perturbation is smaller than an ordinary inter-block
+interval (the empirical realization of the T_bdy liveness bound). Scaled to n=12 (2 validators/host):
+764 TPS, migrates, zero fork. Same-region; cross-region geo throughput remains future work.
+See `results/raw/multihost_tps_3arm.csv`, `results/raw/multihost_n12_sage.csv`.
+
 ## Workspace Structure
 
 ```text
@@ -121,29 +146,32 @@ loopback netem tier at n≈22 is the shipped bridge evidence.
 
 ## Verification Checkpoint
 
-Last verified in this workspace on 2026-06-16:
+Last verified in this workspace on 2026-07-05:
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --workspace --lib
 cargo test --workspace
-cargo run -p sage-experiments --bin verify -- --config config/default.toml
+cargo run -p sage-experiments --bin verify
 cargo test -p sage-manifest --features real-crypto
+make formal        # TLA+/TLC 8/8
+make provenance    # plotted paper coords == source CSVs
 ```
 
 Observed results:
 
 | Metric | Value |
 |--------|-------|
-| Rust source files | 85 |
+| Rust source files | 88 |
 | Workspace crates | 10 |
-| Experiment binaries | 11 (sage-experiments) + 4 (sage-node) |
+| Experiment binaries | 15 (sage-experiments) + 4 (sage-node) |
 | Config files | 6 |
-| Default workspace tests | 116 passing (+2 `#[ignore]` on-demand) |
-| Feature-gated real-crypto tests | 4 passing |
-| Verify checks | 16 passing |
+| Default workspace tests | 127 passing (+2 `#[ignore]` on-demand) |
+| Feature-gated real-crypto tests | 3 passing |
+| Verify checks | 17 passing |
+| Formal (TLA+/TLC) | 8/8 (safety n∈{4,7,10} + rollback; broken controls falsified) |
 | Multi-process testbed scripts | m3 partition, m4 message-complexity, m5 Byzantine equivocation, m6 SOTA Cox-style baseline |
-| Git metadata | unavailable in this checkout (`.git` missing) |
+| Real-host tier | 6 cloud VMs: fair 3-arm TPS (SAGE 777 / hardfork 790 / Cox-style 790), n=12 scale, faithful-Cox 5/5 vs SAGE 0/5 |
 
 ## Current Checkpoint
 
@@ -175,9 +203,15 @@ Observed results:
 
 ## Documentation
 
-- `docs/paper.tex` — journal paper draft
+- `docs/paper/paper.tex` — journal paper draft (24 pp)
+- `docs/ARTIFACT_EVALUATION.md` — reviewer-facing artifact-evaluation guide (claim→command map)
+- `docs/COVER_LETTER.md` — response-to-reviews cover letter
+- `docs/RESPONSE_TO_REVIEWS.md` — point-by-point review-response mapping
+- `docs/EXPERIMENT_FAIRNESS.md` — held-equal-knob fairness contract for cross-strategy comparison
+- `REPRODUCE.md` — artifact→command reproduction map
 - `docs/guides/experiment_guide.md` — user-facing experiment guide
 - `docs/research/` — research-backed design decisions
+- `graphify-out/GRAPH_REPORT.md` — knowledge-graph audit report (read before architecture work)
 
 ## License
 

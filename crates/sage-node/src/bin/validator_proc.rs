@@ -52,6 +52,7 @@ fn main() {
         Some("stoptheworld") | Some("stw") => NodeStrategy::StopTheWorld,
         Some("reconfig") | Some("reconfigonly") => NodeStrategy::ReconfigOnly,
         Some("coxstyle") | Some("cox") => NodeStrategy::CoxStyle,
+        Some("coxfaithful") | Some("cox-faithful") => NodeStrategy::CoxFaithful,
         Some(other) => {
             eprintln!("unknown strategy '{other}'");
             std::process::exit(2);
@@ -132,6 +133,17 @@ fn main() {
     let mut cfg = NodeConfig::local_testnet(n, f, schedule, max_height).with_strategy(strategy);
     cfg.max_runtime_secs = max_secs;
     cfg.workload_seed = seed;
+    // Real-network pacemaker tuning: over a real WAN/LAN with staggered process
+    // starts, the single-box defaults (view_timeout_ms=200) burn views before the
+    // mesh forms. These flags let the orchestrator widen the timeouts to match the
+    // real inter-host RTT and start skew. Defaults preserve single-box behavior.
+    cfg.view_timeout_ms = opt_u64(&opts, "view-timeout-ms", cfg.view_timeout_ms);
+    cfg.pacemaker_tick_ms = opt_u64(&opts, "pacemaker-tick-ms", cfg.pacemaker_tick_ms);
+    cfg.proposal_interval_ms = opt_u64(&opts, "proposal-interval-ms", cfg.proposal_interval_ms);
+    // Synthetic throughput workload: height-derived (proposer-independent) txs
+    // per block so the no-fault path stays fork-free while carrying a real,
+    // non-zero committed-transaction count for the TPS/finality-latency metrics.
+    cfg.workload_txs_per_block = opt_u64(&opts, "workload-txs", cfg.workload_txs_per_block);
 
     let mut pv = ProcessValidator::new(id, cfg, transport);
 
@@ -171,7 +183,13 @@ fn main() {
     // for the same boundary, instead of on local readiness. The orchestrator
     // passes --cutover-quorum for the SAGE strategy so that under a partition a
     // minority side (< n-f) refuses to switch and cannot fork.
-    if opts.contains_key("cutover-quorum") {
+    if strategy == NodeStrategy::CoxFaithful {
+        // Faithful Cox always gates on its 2f+1 checkpoint quorum (its actual
+        // safety mechanism), regardless of --cutover-quorum, so the differential
+        // exercises Cox's real threshold rather than "no gate".
+        eprintln!("validator {id_num} Cox checkpoint-quorum gate ENABLED (threshold 2f+1)");
+        pv = pv.with_cox_checkpoint_quorum();
+    } else if opts.contains_key("cutover-quorum") {
         eprintln!("validator {id_num} cutover-quorum gate ENABLED (threshold n-f)");
         pv = pv.with_cutover_quorum();
     }
@@ -188,6 +206,29 @@ fn main() {
         eprintln!("validator {id_num} BYZANTINE: equivocates at height {h}");
         pv = pv.with_equivocation(Height::new(h));
     }
+
+    // Hard watchdog: the run loop checks its wall-clock valve each iteration,
+    // but a single iteration can block inside real network I/O (e.g. a peer
+    // socket that never returns under a partition), so the cooperative valve is
+    // not sufficient to guarantee termination. This thread force-exits the
+    // process max_secs + grace after start, unconditionally. Without it a hung
+    // validator holds its ssh session open and blocks the orchestrator's `wait`,
+    // stalling an entire multi-trial campaign (observed on the hardfork+partition
+    // arm). The orchestrator treats a missing/empty JSON line as height 0 for
+    // that node, which is correct: a node that could not terminate did not
+    // finalize anything the fork detector should trust.
+    {
+        let grace_secs = opt_u64(&opts, "watchdog-grace-secs", 15);
+        let deadline_secs = max_secs.saturating_add(grace_secs);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(deadline_secs));
+            eprintln!(
+                "validator {id_num} WATCHDOG: exceeded {deadline_secs}s (max_secs={max_secs} + grace={grace_secs}); force-exiting"
+            );
+            std::process::exit(2);
+        });
+    }
+
     match pv.run() {
         Ok(result) => match serde_json::to_string(&result) {
             Ok(line) => println!("{line}"),

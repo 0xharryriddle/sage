@@ -1,0 +1,23 @@
+
+┌─ Reasoning ──────────────────────────────────────────────────────────────────┐
+**Planning file inspection and verification****Planning file inspection and verification**
+All three round-1 objections are addressed.
+
+1. **D3 split and non-ranking constraint — resolved.**
+   - D3a is now required and provenance-focused: “Audit EVERY RQ1/RQ2 label AND figure caption so ‘Cox-inspired control’, ‘Cox-threshold transplant’, and ‘BFT-SMaRt-style analogue’ can never be read as executions of published systems” (lines 62–65).
+   - D3b is explicitly conditional and non-ranking: “Add a cross-paper ‘as reported by original authors’ table ONLY if it records experimental context + metric definitions + measurement boundary” (lines 67–70).
+   - The plan expressly forbids rankings, ratios, normalization, and cross-study statistical tests (lines 70–74), and permits omitting the numbers entirely if the caveat makes them unhelpful (line 74).
+
+2. **D5 demotion and scope bound — resolved.**
+   - D5 is labeled “P2, OPTIONAL, tightly bounded” and explicitly “Demoted from a deliverable” (lines 85–86).
+   - It permits only “ONE restrained motivation citation,” prohibits claiming that SAGE solves PQ-BFT migration, notes that the evaluated target is not a PQ engine, and allows the citation to be cut entirely (lines 86–89).
+
+3. **G-D column, replacement of the existing table, and unsupported-language control — resolved.**
+   - G-D is added as an explicit evidence-level mismatch gap, distinguishing analytical-from-source, authors’-reported, SAGE-modeled-control, and independently executed evidence (lines 30–32).
+   - D2 says: “REPLACE/EXTEND the existing :409 table — do NOT add a second repetitive checkmark table” (lines 54–55).
+   - The required G-D evidence-level column contains the four requested categories (lines 59–60).
+   - Unsupported “cannot” language is controlled through the source ledger: “No ‘cannot’ claim ships without a source quote or is downgraded to ‘does not report’” (lines 37–41). The remaining `CANNOT` heading at lines 91–98 limits what the proposed comparison itself can support; it is not an unsupported assertion about peer-system capabilities.
+
+CONSENSUS: AGREED
+
+session_id: 20260713_000857_0f6e67

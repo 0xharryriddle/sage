@@ -88,6 +88,161 @@ pub const SAFETY_COLUMNS: &[&str] = &[
     "disjoint_quorum_windows",
 ];
 
+pub const OVERHEAD_COLUMNS: &[&str] = &[
+    "experiment",
+    "mode",
+    "strategy",
+    "seed",
+    "n",
+    "f",
+    "txs_per_block",
+    "offered_tps_model",
+    "committed_tps_wall",
+    "wall_seconds",
+    "cpu_user_pct",
+    "cpu_system_pct",
+    "cpu_total_pct",
+    "rss_mb_end",
+    "finalized_blocks",
+    "max_finalized_height",
+    "committed_txs",
+    "shadow_validation_count_model",
+    "shadow_validation_ns_total_proxy",
+    "shadow_validation_ns_per_tx_proxy",
+    "cutover_height",
+    "migration_success",
+    "safety_violation",
+    "generator_saturated",
+    "run_status",
+];
+
+pub const OVERHEAD_SUMMARY_COLUMNS: &[&str] = &[
+    "txs_per_block",
+    "trials",
+    "baseline_tps_mean",
+    "sage_tps_mean",
+    "tps_overhead_pct",
+    "baseline_cpu_mean",
+    "sage_cpu_mean",
+    "cpu_overhead_pct",
+    "baseline_rss_mb_mean",
+    "sage_rss_mb_mean",
+    "shadow_validation_count_mean",
+];
+
+pub const WAN_CUTOVER_COLUMNS: &[&str] = &[
+    "profile",
+    "delay_ms",
+    "jitter_ms",
+    "loss_pct",
+    "strategy",
+    "n",
+    "f",
+    "max_height",
+    "cutover_height",
+    "migration_success",
+    "observed_fork",
+    "total_messages",
+    "run_status",
+    "skip_reason",
+];
+
+pub const TESTBED_SMOKE_COLUMNS: &[&str] = &[
+    "strategy",
+    "n",
+    "f",
+    "validator",
+    "migration_success",
+    "max_finalized_height",
+    "cutover_height",
+    "observed_fork",
+    "run_max_height",
+    "total_duration_secs",
+    "messages_sent",
+    "total_messages",
+    "replay_context_root",
+    "replay_context_root_agreement",
+    "replay_context_ok",
+    "manifest_payload_hash",
+    "manifest_payload_hash_agreement",
+    "manifest_payload_ok",
+];
+
+pub const M4_MESSAGE_COMPLEXITY_COLUMNS: &[&str] = &[
+    "n",
+    "f",
+    "max_height",
+    "trial",
+    "migration_success",
+    "observed_fork",
+    "total_messages",
+    "per_round",
+    "replay_context_ok",
+    "manifest_payload_ok",
+];
+
+pub const M5_BYZANTINE_EQUIVOCATION_COLUMNS: &[&str] = &[
+    "run",
+    "n",
+    "f",
+    "h_c",
+    "byzantine_id",
+    "observed_fork",
+    "migration_success",
+    "total_messages",
+    "replay_context_ok",
+    "manifest_payload_ok",
+];
+
+pub const M6_SOTA_BASELINE_COLUMNS: &[&str] = &[
+    "strategy",
+    "run",
+    "n",
+    "h_c",
+    "observed_fork",
+    "migration_success",
+    "replay_context_ok",
+    "manifest_payload_ok",
+];
+
+pub const FORK_DIFFERENTIAL_COLUMNS: &[&str] = &["arm", "trial", "n", "forked", "verdict"];
+
+pub const SCALE_LOCAL_COLUMNS: &[&str] = &[
+    "profile",
+    "n",
+    "f",
+    "trial",
+    "migration_success",
+    "reached_height",
+    "target_height",
+    "observed_fork",
+    "total_messages",
+];
+
+pub const ROLLBACK_ADMISSIBILITY_COLUMNS: &[&str] = &[
+    "experiment",
+    "workload_class",
+    "trials",
+    "clean_replays",
+    "fail_closed",
+    "silent_misreplay",
+    "expected",
+    "passed",
+];
+
+pub const CERT_TIMING_COLUMNS: &[&str] = &[
+    "experiment",
+    "n",
+    "f",
+    "signers",
+    "sign_total_us",
+    "verify_all_p50_us",
+    "verify_all_p95_us",
+    "cert_bytes",
+    "gather_model_us",
+    "measurement_source",
+];
+
 pub fn missing_columns<'a>(headers: &'a [&'a str], required: &'a [&'a str]) -> Vec<&'a str> {
     required
         .iter()

@@ -1,0 +1,4 @@
+arm,delay_ms_per_side,rtt_ms_approx,n,mean_committed_tps,min_tps,max_tps,migrated_all,observed_fork
+sage,50,104,6,230.5,199.4,238.3,true,false
+hardfork,50,104,6,230.1,198.9,238.1,true,false
+cox_faithful,50,104,6,222.9,199.3,236.6,true,false

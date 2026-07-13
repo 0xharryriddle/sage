@@ -1,0 +1,2 @@
+experiment,total_population,admissible_rate,deferred_rate,contingency_branch,model_kind
+assumption3_admissibility,1.0000000000000002,0.8895199999999998,0.11048000000000024,A>=80%: keep fail-closed default; defer the unsafe tail to absolute finality,modeled_published_distribution_not_live_trace

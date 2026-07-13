@@ -1,0 +1,10 @@
+experiment,n,f,signers,ed25519_measured_bytes,ed25519_model_bytes,bls_aggregate_bytes,ed25519_over_bls,measurement_source
+cert_sizes,4,1,3,216,216,49,4.408163265306122,ed25519_real_signatures
+cert_sizes,7,2,5,360,360,49,7.346938775510204,ed25519_real_signatures
+cert_sizes,10,3,7,504,504,50,10.08,ed25519_real_signatures
+cert_sizes,16,5,11,792,792,50,15.84,ed25519_real_signatures
+cert_sizes,25,8,17,1224,1224,52,23.53846153846154,ed25519_real_signatures
+cert_sizes,40,13,27,1944,1944,53,36.679245283018865,ed25519_real_signatures
+cert_sizes,64,21,43,3096,3096,56,55.285714285714285,ed25519_real_signatures
+cert_sizes,100,33,67,4824,4824,61,79.08196721311475,ed25519_real_signatures
+cert_sizes,150,49,101,7272,7272,67,108.53731343283582,ed25519_real_signatures

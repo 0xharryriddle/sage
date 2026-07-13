@@ -1,0 +1,28 @@
+# SAGE multi-host benchmark — host inventory (copy to config/hosts.txt and edit).
+#
+# One validator per line. Columns are whitespace-separated:
+#   <validator_id>  <ssh_user@ssh_host>  <region_label>  <bind_ip:port>
+#
+# CRITICAL CONTRACT (see docs/guides/VPS_BENCHMARK_SETUP.md §5):
+#   - validator_id is 0-based and MUST be contiguous (0,1,2,...).
+#   - ssh_user@ssh_host is how THIS machine reaches the VM to launch it
+#     (the public IP / DNS name, or a Tailscale name).
+#   - bind_ip:port is the address every OTHER validator dials to reach this one.
+#     This MUST be an IP the node itself owns AND every peer can route to.
+#     On a flat overlay (WireGuard/Tailscale) use the overlay IP here — the same
+#     value works as both the dial address and the local bind address. Using a
+#     raw public IP usually FAILS because the VM cannot bind its own public IP
+#     behind cloud NAT. Use the overlay IP. See guide §3.
+#   - The port must be open between all hosts (overlay or security-group rule).
+#
+# ---- Example A: 4 nodes on a Tailscale overlay (RECOMMENDED, works cross-region) ----
+0  ubuntu@100.64.0.1  us-east-1     100.64.0.1:7000
+1  ubuntu@100.64.0.2  eu-west-1     100.64.0.2:7000
+2  ubuntu@100.64.0.3  ap-southeast  100.64.0.3:7000
+3  ubuntu@100.64.0.4  us-west-2     100.64.0.4:7000
+#
+# ---- Example B: 4 nodes on the same LAN / VPC subnet (simplest) ----
+# 0  ubuntu@10.0.0.10  rack-a  10.0.0.10:7000
+# 1  ubuntu@10.0.0.11  rack-a  10.0.0.11:7000
+# 2  ubuntu@10.0.0.12  rack-b  10.0.0.12:7000
+# 3  ubuntu@10.0.0.13  rack-b  10.0.0.13:7000

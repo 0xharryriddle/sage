@@ -1,4 +1,4 @@
-use crate::{HotStuffMessage, PoaMessage};
+use crate::{HotStuffMessage, PoaMessage, RaftMessage};
 use sage_core::{ChainId, ConfigId, Epoch, ValidatorId};
 use serde::{Deserialize, Serialize};
 
@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum ConsensusMessage {
     Poa(PoaMessage),
     HotStuff(HotStuffMessage),
+    Raft(RaftMessage),
     Sage(SageMessage),
 }
 
@@ -24,6 +25,12 @@ pub enum SageMessage {
     CutoverAttestation {
         height: sage_core::Height,
         boundary_block: sage_core::BlockHash,
+        boundary_root: sage_core::StateRoot,
+        target_engine: sage_core::EngineId,
+        /// Individual signature over the domain-bound cutover certificate
+        /// payload. Testbeds use Ed25519; production deployments must provision
+        /// validator public keys independently of the transport.
+        signature: Vec<u8>,
     },
 }
 

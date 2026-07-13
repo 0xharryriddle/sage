@@ -1,6 +1,6 @@
-kappa,trials,unsafe_rate,migration_rate,mean_cutover_latency_micros
-1,5,0.0000,1.0000,105.6
-2,5,0.0000,1.0000,105.6
-4,5,0.0000,1.0000,105.6
-8,5,0.0000,1.0000,105.6
-16,5,0.0000,1.0000,105.6
+kappa,trials,unsafe_rate,unsafe_ci_low,unsafe_ci_high,migration_rate,migration_ci_low,migration_ci_high,mean_cutover_latency_micros,min_cutover_latency_micros,max_cutover_latency_micros
+1,20,0.0000,0.0000,0.1611,1.0000,0.8389,1.0000,105.2,89.0,118.0
+2,20,0.0000,0.0000,0.1611,1.0000,0.8389,1.0000,105.2,89.0,118.0
+4,20,0.0000,0.0000,0.1611,1.0000,0.8389,1.0000,105.2,89.0,118.0
+8,20,0.0000,0.0000,0.1611,1.0000,0.8389,1.0000,105.2,89.0,118.0
+16,20,0.0000,0.0000,0.1611,1.0000,0.8389,1.0000,105.2,89.0,118.0

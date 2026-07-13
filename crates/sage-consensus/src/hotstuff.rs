@@ -1,4 +1,13 @@
-//! Minimal HotStuff BFT engine with timeout-certificate pacemaker.
+//! Reference pipelined-HotStuff BFT target engine with a timeout-certificate
+//! pacemaker, implemented behind the `ConsensusEngine` trait
+//! (`crate::engine`). SAGE's contribution is the migration *boundary* (the
+//! quorum-gated heterogeneous cutover and bounded rollback), not this engine's
+//! raw performance: any engine satisfying the trait — a production
+//! chained-HotStuff, a DAG-BFT such as Mysticeti, or a CFT log such as Raft —
+//! is a drop-in target. This engine is the reference instantiation used to
+//! exercise the boundary end-to-end (PoA -> HotStuff cutover, post-cutover
+//! finalization, view change under fault); its capabilities are backed by the
+//! engine/pacemaker tests in this module and the multi-process testbed.
 //!
 //! Supported message types:
 //! - `Proposal` (leader → all): propose a block at current view
@@ -160,6 +169,51 @@ impl HotStuffEngine {
         self.view
     }
 
+    fn validate_qc(&self, qc: &QuorumCertificate) -> ConsensusResult<()> {
+        if qc.certificate_hash != QuorumCertificate::qc_hash(qc.view, qc.block_hash, &qc.signers) {
+            return Err(ConsensusError::InvalidCertificate {
+                reason: "quorum certificate hash mismatch".into(),
+            });
+        }
+        let required = self
+            .quorum_policy()
+            .threshold(&self.validators)?
+            .required_power;
+        let actual = self.validators.power_of_signers(&qc.signers)?;
+        if actual < required {
+            return Err(ConsensusError::InsufficientVotes { required, actual });
+        }
+        Ok(())
+    }
+
+    fn validate_tc(&self, new_view: View, tc: &TimeoutCertificate) -> ConsensusResult<()> {
+        let expected_view = tc.view.get().checked_add(1).map(View::new).ok_or(
+            ConsensusError::ArithmeticOverflow("timeout-certificate view"),
+        )?;
+        if new_view != expected_view {
+            return Err(ConsensusError::InvalidCertificate {
+                reason: "new-view number is not timeout-certificate view + 1".into(),
+            });
+        }
+        if tc.certificate_hash != TimeoutCertificate::hash(tc.view, &tc.signers) {
+            return Err(ConsensusError::InvalidCertificate {
+                reason: "timeout certificate hash mismatch".into(),
+            });
+        }
+        let required = self
+            .quorum_policy()
+            .threshold(&self.validators)?
+            .required_power;
+        let actual = self.validators.power_of_signers(&tc.signers)?;
+        if actual < required {
+            return Err(ConsensusError::InsufficientVotes { required, actual });
+        }
+        if let Some(qc) = &tc.highest_qc {
+            self.validate_qc(qc)?;
+        }
+        Ok(())
+    }
+
     /// Return whether this engine has already emitted a timeout for the
     /// current view (pacemaker idempotency guard).
     pub fn has_timed_out(&self) -> bool {
@@ -301,13 +355,14 @@ impl ConsensusEngine for HotStuffEngine {
                 block,
                 justify,
             }) => {
-                if view > self.view {
-                    self.view = view;
-                    self.last_voted_view = None;
-                    self.timed_out = false;
-                }
                 if view < self.view {
                     return Ok(Vec::new());
+                }
+                if view > self.view {
+                    return Err(ConsensusError::InvalidCertificate {
+                        reason: "future-view proposal requires a validated NewView transition"
+                            .into(),
+                    });
                 }
                 if self.leader_for(view) != msg.from {
                     return Err(ConsensusError::InvalidProposal {
@@ -322,8 +377,8 @@ impl ConsensusEngine for HotStuffEngine {
                     });
                 }
                 if let Some(qc) = justify {
-                    if self.highest_qc.is_none() || qc.view > self.highest_qc.as_ref().unwrap().view
-                    {
+                    self.validate_qc(&qc)?;
+                    if self.highest_qc.as_ref().is_none_or(|h| qc.view > h.view) {
                         self.highest_qc = Some(qc);
                     }
                 }
@@ -351,6 +406,22 @@ impl ConsensusEngine for HotStuffEngine {
                     // Stale vote, ignore
                     return Ok(Vec::new());
                 }
+                if view > self.view {
+                    return Err(ConsensusError::InvalidCertificate {
+                        reason: "future-view vote requires a validated NewView transition".into(),
+                    });
+                }
+                if block_hash != block.hash() {
+                    return Err(ConsensusError::InvalidProposal {
+                        height: block.header.height,
+                        reason: "vote block hash does not match block".into(),
+                    });
+                }
+                self.validators
+                    .power_of(msg.from)
+                    .ok_or(ConsensusError::UnknownValidator {
+                        validator: msg.from,
+                    })?;
                 let (_, _, signers) = self
                     .pending_votes
                     .entry(block_hash)
@@ -366,38 +437,42 @@ impl ConsensusEngine for HotStuffEngine {
                 if view <= self.view {
                     return Ok(Vec::new());
                 }
-                // Verify TC if present
-                if let Some(tc_val) = &tc {
-                    if tc_val.view >= self.view {
-                        // Validate TC signers reach threshold
-                        let threshold = self.quorum_policy().threshold(&self.validators)?;
-                        let power = self
-                            .validators
-                            .power_of_signers(&tc_val.signers)
-                            .unwrap_or(0);
-                        if power >= threshold.required_power {
-                            self.view = view;
-                            self.last_voted_view = None;
-                            self.timed_out = false;
-                            self.view_bump_count = 0;
-                            if let Some(qc) = highest_qc {
-                                self.highest_qc = Some(qc);
-                            } else if let Some(qc) = &tc_val.highest_qc {
-                                self.highest_qc = Some(qc.clone());
-                            }
-                        }
+                let tc_val = tc.ok_or_else(|| ConsensusError::InvalidCertificate {
+                    reason: "NewView requires a timeout certificate".into(),
+                })?;
+                self.validate_tc(view, &tc_val)?;
+                if let Some(qc) = &highest_qc {
+                    self.validate_qc(qc)?;
+                    if tc_val.highest_qc.as_ref() != Some(qc) {
+                        return Err(ConsensusError::InvalidCertificate {
+                            reason: "NewView highest QC does not match timeout certificate".into(),
+                        });
                     }
-                } else {
-                    // Without TC, trust the sender (legacy/fallback)
-                    self.view = view;
-                    self.last_voted_view = None;
-                    self.timed_out = false;
                 }
+                self.view = view;
+                self.last_voted_view = None;
+                self.timed_out = false;
+                self.view_bump_count = 0;
+                self.highest_qc = highest_qc.or(tc_val.highest_qc);
                 Ok(Vec::new())
             }
             ConsensusMessage::HotStuff(HotStuffMessage::Timeout { view, highest_qc }) => {
                 if view < self.view {
                     return Ok(Vec::new());
+                }
+                if view > self.view {
+                    return Err(ConsensusError::InvalidCertificate {
+                        reason: "future-view timeout requires a validated NewView transition"
+                            .into(),
+                    });
+                }
+                self.validators
+                    .power_of(msg.from)
+                    .ok_or(ConsensusError::UnknownValidator {
+                        validator: msg.from,
+                    })?;
+                if let Some(qc) = &highest_qc {
+                    self.validate_qc(qc)?;
                 }
                 let (signers, hqc) = self
                     .pending_timeouts
@@ -406,8 +481,9 @@ impl ConsensusEngine for HotStuffEngine {
                 signers.insert(msg.from);
                 // Keep the highest QC seen among timeout messages
                 if highest_qc.is_some()
-                    && (hqc.is_none()
-                        || highest_qc.as_ref().unwrap().view > hqc.as_ref().unwrap().view)
+                    && hqc
+                        .as_ref()
+                        .is_none_or(|h| highest_qc.as_ref().is_some_and(|n| n.view > h.view))
                 {
                     *hqc = highest_qc;
                 }
@@ -430,6 +506,27 @@ impl ConsensusEngine for HotStuffEngine {
                 (power >= threshold).then_some((*hash, *view, block.clone(), signers.clone()))
             })
             .collect();
+        // Validate the entire batch before mutating state. A malformed or
+        // Byzantine vote set must not cause partial finalization of one branch
+        // followed by a conflicting block at the same height.
+        let mut finalized_by_height: BTreeMap<_, _> = self
+            .finalized
+            .iter()
+            .map(|finalized| (finalized.block.header.height, finalized.block.hash()))
+            .collect();
+        for (hash, _, block, _) in &ready {
+            if let Some(existing) = finalized_by_height.insert(block.header.height, *hash) {
+                if existing != *hash {
+                    return Err(ConsensusError::InvalidCertificate {
+                        reason: format!(
+                            "conflicting quorum certificates at height {}",
+                            block.header.height.get()
+                        ),
+                    });
+                }
+            }
+        }
+
         let mut out = Vec::new();
         for (hash, view, block, signers) in ready {
             self.pending_votes.remove(&hash);
@@ -470,6 +567,136 @@ mod tests {
         ChainId, ConfigId, ConsensusStateEnvelope, EngineGeneration, EngineKind, Epoch,
         ExecutionState, Height, PlatformState, Transaction,
     };
+
+    fn test_engine() -> HotStuffEngine {
+        HotStuffEngine::new(
+            ValidatorId::new(0),
+            EngineId::new(EngineKind::HotStuff, EngineGeneration::new(1)),
+            ValidatorSet::equal_power(ConfigId::new(1), Epoch::new(1), 4),
+            1,
+        )
+    }
+
+    fn envelope(from: ValidatorId, message: HotStuffMessage) -> MessageEnvelope {
+        MessageEnvelope {
+            from,
+            to: None,
+            chain_id: ChainId::new("sage"),
+            epoch: Epoch::new(1),
+            config_id: ConfigId::new(1),
+            message: ConsensusMessage::HotStuff(message),
+        }
+    }
+
+    #[test]
+    fn new_view_without_valid_tc_does_not_advance_view() {
+        let mut engine = test_engine();
+        let no_tc = envelope(
+            ValidatorId::new(1),
+            HotStuffMessage::NewView {
+                view: View::new(1),
+                highest_qc: None,
+                tc: None,
+            },
+        );
+        assert!(engine.handle_message(no_tc).is_err());
+        assert_eq!(engine.current_view(), View::new(0));
+
+        let signers = BTreeSet::from([
+            ValidatorId::new(0),
+            ValidatorId::new(1),
+            ValidatorId::new(2),
+        ]);
+        let tampered = envelope(
+            ValidatorId::new(1),
+            HotStuffMessage::NewView {
+                view: View::new(1),
+                highest_qc: None,
+                tc: Some(TimeoutCertificate {
+                    view: View::new(0),
+                    signers,
+                    highest_qc: None,
+                    certificate_hash: Hash32::ZERO,
+                }),
+            },
+        );
+        assert!(engine.handle_message(tampered).is_err());
+        assert_eq!(engine.current_view(), View::new(0));
+    }
+
+    #[test]
+    fn future_view_timeout_is_not_buffered() {
+        let mut engine = test_engine();
+        let timeout = envelope(
+            ValidatorId::new(1),
+            HotStuffMessage::Timeout {
+                view: View::new(5),
+                highest_qc: None,
+            },
+        );
+        assert!(engine.handle_message(timeout).is_err());
+        assert!(engine.pending_timeouts.is_empty());
+        assert_eq!(engine.current_view(), View::new(0));
+    }
+
+    #[test]
+    fn conflicting_quorate_candidates_fail_before_finalization() {
+        let mut engine = test_engine();
+        let state = sage_core::ChainState {
+            execution: ExecutionState::new_with_accounts(2, 10),
+            platform: PlatformState {
+                chain_id: ChainId::new("sage"),
+                epoch: Epoch::new(1),
+                config_id: ConfigId::new(1),
+                migration: None,
+            },
+            consensus: ConsensusStateEnvelope {
+                engine: engine.engine_id,
+                opaque: vec![],
+            },
+        };
+        let make_block = |amount| {
+            let tx = Transaction {
+                from: 0,
+                to: 1,
+                amount,
+                nonce: 0,
+            };
+            let mut next = state.clone();
+            next.execution.apply_tx(&tx).unwrap();
+            Block {
+                header: BlockHeader {
+                    chain_id: state.platform.chain_id.clone(),
+                    epoch: state.platform.epoch,
+                    config_id: state.platform.config_id,
+                    height: Height::new(1),
+                    parent_hash: Hash32::ZERO,
+                    state_root: next.root(),
+                    engine_id: engine.engine_id,
+                    finality_tier: FinalityTier::Provisional,
+                    manifest_hash: None,
+                },
+                txs: vec![tx],
+            }
+        };
+        let first = make_block(0);
+        let second = make_block(1);
+        let signers = BTreeSet::from([
+            ValidatorId::new(0),
+            ValidatorId::new(1),
+            ValidatorId::new(2),
+        ]);
+        engine
+            .pending_votes
+            .insert(first.hash(), (View::new(0), first, signers.clone()));
+        engine
+            .pending_votes
+            .insert(second.hash(), (View::new(0), second, signers));
+
+        assert!(engine.try_finalize().is_err());
+        assert!(engine.finalized.is_empty());
+        assert_eq!(engine.pending_votes.len(), 2);
+    }
 
     #[test]
     fn leader_proposes_provisional_block() {

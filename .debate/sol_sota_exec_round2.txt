@@ -1,0 +1,15 @@
+
+┌─ Reasoning ──────────────────────────────────────────────────────────────────┐
+**Planning file inspection strategy****Planning file inspection strategy****Searching plan and todo files**
+**Searching plan and todo files****Identifying unmet status markings****Identifying unmet status markings**
+Correction 8 remains unmet:
+
+- `.debate/D3b_OPERATING_POINTS.md:3` still says `STATUS: DRAFT` and describes the table as optional; it does not mark D3b as `OMIT`.
+- `.debate/D5_QUANTUM_MOTIVATION.md:3` still says `STATUS: RECOMMENDATION DRAFTED`, and `.debate/D5_QUANTUM_MOTIVATION.md:23` still presents “keep … or cut”; it does not record a final `CUT` decision.
+- `.debate/SOTA_COMPARISON_PLAN.md:75` and `.debate/SOTA_COMPARISON_PLAN.md:93` still retain D3b as conditional and D5 as optional rather than recording `OMIT`/`CUT`.
+
+Corrections 1–7 and 9–10 are satisfied in the inspected artifacts.
+
+CONSENSUS: NOT YET — 8
+
+session_id: 20260713_010848_0c140a

@@ -1,0 +1,2 @@
+scenario,trials,fork_rate,replay_ok_rate,manifest_ok_rate,mean_migration_success,mean_total_messages
+single_byzantine_equivocator,5,0.0000,1.0000,1.0000,7.00,636.0

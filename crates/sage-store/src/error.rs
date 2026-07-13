@@ -19,8 +19,14 @@ pub enum StoreError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("invalid durable store image: {0}")]
+    InvalidImage(String),
+
     #[error("conflicting vote already exists for safety key")]
     ConflictingVote,
+
+    #[error("conflicting migration authority decision already exists")]
+    ConflictingMigrationDecision,
 
     #[error("storage error: {0}")]
     General(String),

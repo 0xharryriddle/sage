@@ -1,0 +1,10 @@
+# WAN-latency multi-host fork differential (6 Oracle VMs, tc netem 50ms/side egress => ~104ms real inter-VM TCP RTT).
+# Verdict computed per-trial from committed_detail state_roots (same aggregator as same-region run).
+# Migration still converges under this latency (no-fault sanity: all 6 reach h=8, ~7s wall-clock).
+arm,trial,n,rtt_ms,forked,verdict
+sage,1,6,104,false,expect_nofork
+sage,2,6,104,false,expect_nofork
+sage,3,6,104,false,expect_nofork
+hardfork,1,6,104,true,expect_fork
+hardfork,2,6,104,true,expect_fork
+hardfork,3,6,104,true,expect_fork

@@ -1,4 +1,5 @@
 //! SAGE migration controller state machine.
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod controller;
 pub mod error;
@@ -18,5 +19,8 @@ pub use invariants::{
 };
 pub use phase::MigrationPhase;
 pub use readiness::{ReadinessContext, ReadinessTracker, ShadowRecord};
-pub use rollback::{AbortTrigger, RollbackAnchor, RollbackManager, RollbackOutcome};
+pub use rollback::{
+    AbortTrigger, ReplayBlockContext, ReplayContext, RollbackAnchor, RollbackManager,
+    RollbackOutcome,
+};
 pub use schedule::Schedule;

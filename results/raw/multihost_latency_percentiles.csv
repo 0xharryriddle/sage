@@ -1,0 +1,7 @@
+experiment,n,strategy,validator_id,region,committed_height,wall_ms,cutover_height,migration_success,has_cutover_cert,observed_fork,total_txs,committed_tps,inter_commit_p50_micros,inter_commit_p95_micros,inter_commit_p99_micros,inter_commit_max_micros,cutover_gap_micros
+multihost,6,sage,0,oci-sg-ad1,60,27549,4,true,true,false,0,0.000,494365,594959,595040,605074,10089
+multihost,6,sage,1,oci-sg-ad1,60,27454,4,true,true,false,0,0.000,494451,596926,597040,607035,11345
+multihost,6,sage,2,oci-sg-ad1,60,27546,4,true,true,false,0,0.000,485746,596326,596385,606326,22769
+multihost,6,sage,3,oci-sg-ad1,60,27531,4,true,true,false,0,0.000,494271,594977,605111,605135,21448
+multihost,6,sage,4,oci-sg-ad1,60,27538,4,true,true,false,0,0.000,496127,595023,605052,605101,21469
+multihost,6,sage,5,oci-sg-ad1,60,27495,4,true,true,false,0,0.000,494230,594966,604929,604968,11432

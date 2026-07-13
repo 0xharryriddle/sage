@@ -71,7 +71,7 @@ fn make_fixtures() -> (
         kind: CertificateKind::Cutover,
         height: Height::new(10),
         root: boundary_root,
-        block_hash: None,
+        block_hash: Some(BlockHash::new([0xCC; 32])),
         engine_id: target_engine,
     };
 
@@ -124,6 +124,11 @@ fn make_ctx<'a>(
         expected_source_engine: manifest.source_engine,
         expected_target_engine: manifest.target_engine,
         local_boundary_root: manifest.boundary_root,
+        local_boundary_block_hash: manifest
+            .cut_cert
+            .payload
+            .block_hash
+            .expect("test cut certificate has a boundary block hash"),
         local_parent_hash: manifest.parent_hash,
         validators: vset,
         required_cutover_quorum: threshold,

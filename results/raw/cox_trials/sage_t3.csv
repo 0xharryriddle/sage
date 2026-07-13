@@ -1,0 +1,7 @@
+strategy,n,f,validator,migration_success,max_finalized_height,cutover_height,observed_fork,run_max_height,total_duration_secs,messages_sent,total_messages,replay_context_root,replay_context_root_agreement,replay_context_ok,manifest_payload_hash,manifest_payload_hash_agreement,manifest_payload_ok,total_txs,committed_tps,inter_commit_p50_micros,inter_commit_p95_micros,inter_commit_p99_micros,inter_commit_max_micros,cutover_gap_micros
+sage,6,1,0,false,3,,false,3,12.006377,2357,23263,,true,false,,true,false,3,0.250,20438,20438,20438,20438,0
+sage,6,1,1,false,3,,false,3,12.007786,2362,23263,,true,false,,true,false,3,0.250,20576,20576,20576,20576,0
+sage,6,1,2,false,3,,false,3,12.006182,2362,23263,,true,false,,true,false,3,0.250,20392,20392,20392,20392,0
+sage,6,1,3,false,3,,false,3,12.006652,4638,23263,,true,false,,true,false,3,0.250,20570,20570,20570,20570,0
+sage,6,1,4,false,3,,false,3,12.008818,6911,23263,,true,false,,true,false,3,0.250,20494,20494,20494,20494,0
+sage,6,1,5,false,3,,false,3,12.006551,4633,23263,,true,false,,true,false,3,0.250,20444,20444,20444,20444,0

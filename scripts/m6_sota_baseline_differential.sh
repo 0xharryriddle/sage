@@ -25,7 +25,7 @@
 # Pure ASCII, raw lines exposed.
 #
 # Usage: bash scripts/m6_sota_baseline_differential.sh [RUNS] [N] [H_C]
-set -u
+set -uo pipefail
 
 cd "$(dirname "$0")/.."
 RUNS="${1:-5}"
@@ -40,7 +40,7 @@ fi
 
 OUT=results/raw/m6_sota_baseline_differential.csv
 mkdir -p results/raw
-echo "strategy,run,n,h_c,observed_fork,migration_success" > "$OUT"
+echo "strategy,run,n,h_c,run_status,observed_fork,migration_success,replay_context_ok,manifest_payload_ok" > "$OUT"
 
 echo "=== M6 SOTA-baseline differential: SAGE vs Cox-style vs hard-fork control ==="
 echo "    n=$N, 3/3 partition at cutover h_c=$HC, $RUNS runs each."
@@ -48,23 +48,50 @@ echo "    Expected: Cox-style and hard-fork FORK (no n-f gate); SAGE 0 forks."
 echo ""
 
 for strat in coxstyle hardfork sage; do
-  forks=0; total=0
+  forks=0; completed=0; errors=0
   echo "--- strategy=$strat ---"
   for i in $(seq 1 "$RUNS"); do
-    line=$("$BIN" --n "$N" --strategy "$strat" --partition $((N/2)) \
+    if ! output=$("$BIN" --n "$N" --strategy "$strat" --partition $((N/2)) \
       --h-c "$HC" --max-height 8 --max-secs 20 \
-      --out "/tmp/m6_${strat}_${i}.csv" 2>/dev/null | grep -o '{.*}')
-    of=$(echo "$line" | grep -o '"observed_fork":[a-z]*' | grep -o '[a-z]*$')
-    ms=$(echo "$line" | grep -o '"migration_success":[0-9]*' | grep -o '[0-9]*')
-    total=$((total+1))
+      --out "/tmp/m6_${strat}_${i}.csv" 2>/dev/null); then
+      errors=$((errors+1)); echo "$strat,$i,$N,$HC,error,,,," >> "$OUT"; continue
+    fi
+    parsed=$(printf '%s\n' "$output" | python3 -c '
+import json, sys
+rows=[]
+for line in sys.stdin:
+    try: v=json.loads(line)
+    except json.JSONDecodeError: continue
+    if isinstance(v, dict) and type(v.get("observed_fork")) is bool:
+        rows.append(v)
+if len(rows) != 1: raise SystemExit(2)
+v=rows[0]
+print("true" if v["observed_fork"] else "false", v.get("migration_success", ""), v.get("replay_context_ok", ""), v.get("manifest_payload_ok", ""), sep="|")
+') || { errors=$((errors+1)); echo "$strat,$i,$N,$HC,error,,,," >> "$OUT"; continue; }
+    IFS='|' read -r of ms rc mp <<< "$parsed"
+    completed=$((completed+1))
+    # Partitioned baseline runs may intentionally fail to form a migration
+    # quorum; record replay/manifest evidence without making it the pass/fail
+    # condition for this fork-differential experiment.
     case "$of" in
-      true)  forks=$((forks+1)); echo "  run $i: FORK observed (success=$ms/$N)" ;;
-      false) echo "  run $i: no fork (success=$ms/$N)" ;;
-      *)     echo "  run $i: NO RESULT (child failure)" ;;
+      true)  forks=$((forks+1)); echo "  run $i: FORK observed (success=$ms/$N replay_context_ok=$rc manifest_payload_ok=$mp)" ;;
+      false) echo "  run $i: no fork (success=$ms/$N replay_context_ok=$rc manifest_payload_ok=$mp)" ;;
     esac
-    echo "$strat,$i,$N,$HC,${of:-unknown},${ms:-0}" >> "$OUT"
+    echo "$strat,$i,$N,$HC,completed,$of,$ms,$rc,$mp" >> "$OUT"
   done
-  echo "  => $strat: $forks/$total forked"
+  echo "  => $strat: $forks/$completed completed forked; errors=$errors"
+  if [ "$errors" -ne 0 ] || [ "$completed" -ne "$RUNS" ]; then
+    echo "FAILED: $strat has incomplete child verdicts"
+    exit 1
+  fi
+  if [ "$strat" = "sage" ] && [ "$forks" -ne 0 ]; then
+    echo "FAILED: SAGE forked under the partition differential"
+    exit 1
+  fi
+  if [ "$strat" != "sage" ] && [ "$forks" -eq 0 ]; then
+    echo "FAILED: $strat control did not trigger the fork detector"
+    exit 1
+  fi
 done
 
 echo ""

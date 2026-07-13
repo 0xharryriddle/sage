@@ -1,0 +1,98 @@
+
+┌─ Reasoning ──────────────────────────────────────────────────────────────────┐
+**Planning parallel searches for PDFs and artifacts****Planning parallel searches for PDFs and artifacts**
+**Verifying sources and paper lines****Verifying sources and paper lines****Planning direct search with escaping**
+**Planning direct search with escaping****Locating paper directory****Locating paper directory**
+**Summarizing critique on quorum and terminology misuse****Deciding to exclude non-scholarly source**
+**Summarizing critique on quorum and terminology misuse****Deciding to exclude non-scholarly source**
+**Verdict**
+
+The three claimed source facts check out against the cached primary texts:
+
+- Cox states the uniform-quorum BFT limitation and selects the larger old/new quorum at `/home/harry-riddle/.hermes/cache/web/www.sciencedirect.com-236dcb169f.md:118`.
+- Cox’s 4-node LAN Go experiment and PBFT→HotStuff setup appear at `/home/harry-riddle/.hermes/cache/web/www.sciencedirect.com-236dcb169f.md:249` and `:251`; its end-to-end 20–30 ms boundary is defined at `:257`.
+- Cox describes downstream-node forward catch-up through chained StableCheckpoints at `/home/harry-riddle/.hermes/cache/web/www.sciencedirect.com-236dcb169f.md:194`; I found no rollback mechanism.
+- The TOCS article lists Pierre-Louis Aublin first and DOI `10.1145/2658994` at `/home/harry-riddle/.hermes/cache/web/infoscience.epfl.ch-ad5bb621e3.md:5` and `:42`.
+- Spectrum explicitly assumes crash failures and excludes Byzantine behavior at `/home/harry-riddle/.hermes/cache/web/arxiv.org-715f06becf.md:343`.
+
+**Q1 — D2 Honesty**
+
+D2 is not yet safe to insert unchanged.
+
+- The global sentence “Every prior runtime-switching system operates within ONE fault model and quorum family” at `.debate/D2_TAXONOMY_FILLED.md:44` is a universal literature claim based on a seven-system audit, four of which remain `[SA]`. Rewrite it as “Every prior system examined here…” or “Among the systems in Table X…”.
+- “SAGE is the only one” and “the only one pairing…” at `.debate/D2_TAXONOMY_FILLED.md:46`–`:49` have the same exhaustiveness problem. Use “the only system in this comparison” unless the complete literature search is documented.
+- D1 nevertheless calls the axes “UNCONTESTED in the literature” and “Uncontested” at `.debate/D1_SOURCE_LEDGER.md:140`–`:142`. Those formulations are not justified while ADAPT, REBFT, AWARE, and DA-PBFT remain subagent-only, and they should not reach the paper.
+- The evidence-level taxonomy is inconsistently applied. D2 defines `AR` as authors’ reported evidence and `IX` as independently executing *their* artifact at `.debate/D2_TAXONOMY_FILLED.md:19`–`:20`, but assigns `AS` to REBFT, AWARE, AdaChain, and BFT-SMaRt despite discussing their published implementations or mechanisms at `:36`–`:40`. `AS` and `AR` are not exclusive properties unless the column states which evidence is being used for the particular comparison claim. AWARE having an artifact does not make it `IX`; no artifact was independently run.
+- SAGE is labeled `MC + AR` at `.debate/D2_TAXONOMY_FILLED.md:30`. Calling the authors’ own testbed `AR` is internally consistent only if `AR` means “measurements reported by each system’s authors,” but it is confusing because SAGE is the reporting paper. Prefer explicit prose: “this work: modeled controls + executed own artifact.” Do not use `IX`, because `IX` is defined as executing a peer’s artifact.
+- “StableCheckpoint (`n-f` agg sig)” at `.debate/D2_TAXONOMY_FILLED.md:26` is unsafe. Cox defines a dynamic threshold selected from the two engines’ quorum values, not universally `n-f`; see Cox primary text `:118`. Use `q=max(q_old,q_new)` or “threshold-selected aggregate checkpoint.”
+- Spectrum’s quorum-crossing cell, “NO — Paxos/Raft/Caesar family,” at `.debate/D2_TAXONOMY_FILLED.md:27` is too loose. Spectrum explicitly discusses classic and fast quorums, so “one family” could imply an invariant quorum predicate. Safer: “No fault-model crossing; quorum rules may differ by CFT protocol.” The SAGE distinction is heterogeneous fault semantics, not that Spectrum’s protocols all share one quorum rule.
+- Spectrum’s “Cert boundary: none” is `[SA]` at `.debate/D2_TAXONOMY_FILLED.md:27` and should not be printed as an absolute until verified. Use “no cross-boundary certificate identified/reported” or verify it from the full protocol.
+- Several “NO rollback” cells rest on absence rather than explicit impossibility. In the table, use “does not report rollback” for Spectrum, Abstract/Aliph, ADAPT, REBFT, AWARE, and DA-PBFT unless a primary source expressly states non-support. Cox can be described positively as reporting forward catch-up; “does not report bounded rollback” is safer than categorical “NO rollback.”
+- D2 says to add a second table while the agreed plan says “REPLACE/EXTEND” and “do NOT add a second repetitive checkmark table”: `.debate/D2_TAXONOMY_FILLED.md:8` versus `.debate/SOTA_COMPARISON_PLAN.md:62`–`:68`. This is an execution-plan mismatch. Replace or materially refactor the existing landscape table rather than stacking two overlapping tables.
+- The planned artifact-availability and implementation-provenance columns are missing from D2, despite being required at `.debate/SOTA_COMPARISON_PLAN.md:64`–`:68`. Those omissions also hide why no independent execution exists.
+- D2’s SAGE assurance cell claims “TLA↔Rust conformance” at `.debate/D2_TAXONOMY_FILLED.md:30`. Before publishing, ensure the paper and artifact establish actual conformance rather than merely corresponding constructs/tests. If it is not a formal refinement or equivalence result, call it “cross-checked TLA+/Rust traces” or the exact implemented method.
+- The Abstract/Aliph row reports “latency +360%, tput +30% vs prior” at `.debate/D2_TAXONOMY_FILLED.md:28`. This adds distracting, context-free performance numbers unrelated to the taxonomy. Remove them from `Ev-level`; simply write “AR: authors’ implementation evaluation.”
+
+**Q2 — Abstract Citation**
+
+Yes. Add Pierre-Louis Aublin as lead author to `\bibitem{abstract}`.
+
+The journal article’s title page and canonical citation list Aublin first. D1 correctly distinguishes the earlier EuroSys author list from the extended TOCS article at `.debate/D1_SOURCE_LEDGER.md:46`–`:51`. Since the bibliography cites the 2015 TOCS article and DOI, omitting Aublin is a real bibliographic error.
+
+**Q3 — Spectrum**
+
+It is safe and useful to state:
+
+> Spectrum assumes crash faults and excludes Byzantine behavior; it switches among CFT protocols through meta-consensus.
+
+That is directly supported by the primary text. Do not call Spectrum a BFT switching system.
+
+This strengthens the narrow historical/taxonomic claim that the Spectrum→Cox switching lineage does not already cover PoA→BFT fault-model crossing. It does not establish that SAGE is globally unique, safer, or faster.
+
+One important correction: avoid saying Spectrum has “one uniform quorum family.” Its CFT protocols can use different classic/fast quorum rules. The defensible distinction is “no crash-to-Byzantine fault-model crossing,” not necessarily “identical quorum predicate throughout.”
+
+**Q4 — Operating Points**
+
+OMIT D3b from the manuscript.
+
+The table places `20–30 ms` beside `105.6 μs`, and reviewers will form the forbidden latency comparison despite the caption. The values differ simultaneously in:
+
+- measured construct,
+- measurement boundary,
+- simulated versus real time,
+- network and implementation substrate,
+- node count and workload.
+
+The caveat consumes more scientific signal than the table provides. Keep `.debate/D3b_OPERATING_POINTS.md` as an internal decision record and use Cox’s 20–30 ms result only in contextual prose if needed, without placing it alongside SAGE’s simulator microseconds.
+
+**Q5 — Quantum**
+
+Cut D5 entirely.
+
+The manuscript already provides post-quantum motivation at `docs/paper/paper.tex:401`–`:407`. The proposed extra clause adds no demonstrated comparison result, and the cited “BFT Consensus in 2024” Medium review is not a strong enough scholarly foundation for a new scope-adjacent claim. SAGE neither implements nor evaluates a PQ-BFT target. The existing generic motivation is sufficient.
+
+**Q6 — Hostile-Reviewer Risks**
+
+In addition to the D2 issues:
+
+- D1’s “NO public artifact” and “real head-to-head infeasible” at `.debate/D1_SOURCE_LEDGER.md:35`–`:36` are stronger than the documented search supports. “We found no public Cox artifact after searching the paper, publisher page, and author/repository channels” is defensible; absolute nonexistence is not.
+- D4 says an ideal engineering effort cannot produce a comparison at `.debate/D4_ARTIFACT_SPIKE.md:21`–`:24`, but later acknowledges a from-scratch implementation at `:44`–`:46`. Say “a faithful independent execution is presently unavailable,” not “infeasible” in an absolute sense.
+- D4 claims Cox and Abstract do not report executable conformance at `.debate/D4_ARTIFACT_SPIKE.md:31`–`:34`; Abstract explicitly reports TLC model checking in the primary text. Distinguish SAGE’s claimed implementation/model linkage from Abstract’s model checking rather than implying Abstract lacks machine-checked assurance.
+- The paper currently says “compare against Cox” at `docs/paper/paper.tex:1605`; D3a correctly requires “modeled on our engine interface, not Cox’s implementation.”
+- The paper currently calls `2f+1` “Cox’s own” and “its actual StableCheckpoint threshold” at `docs/paper/paper.tex:1808`–`:1809`. D3a correctly identifies this as overgeneralized. Cox selects `max(q_old,q_new)`; `2f+1` is the demonstrated PBFT/HotStuff instance.
+- D1’s date wording “June 2026” at `.debate/D1_SOURCE_LEDGER.md:18` deserves bibliographic verification before insertion because the cached article identifiers/year and publication metadata may distinguish online availability, issue date, and citation year.
+
+CONSENSUS: NOT YET
+
+1. Replace D1/D2’s global “uncontested/only/every prior system” claims with comparison-bounded language.
+2. Correct Cox’s D2 certificate threshold from `n-f` to `q=max(q_old,q_new)` and apply the two D3a wording fixes.
+3. Rework D2 evidence levels so `AS`, `AR`, `MC`, and `IX` are consistently defined and applied; do not label any peer `IX`.
+4. Downgrade absence-based “NO rollback/none” cells to “does not report” or “not identified,” especially for `[SA]` rows.
+5. Correct Spectrum’s quorum cell so it does not imply Paxos/Raft/Caesar share one uniform quorum predicate.
+6. Add implementation-provenance and artifact-availability columns, and replace/refactor the existing landscape table rather than adding a second overlapping table.
+7. Add Aublin as lead author to `\bibitem{abstract}`.
+8. Omit D3b and cut the D5 quantum addition.
+9. Soften “no artifact/infeasible” to a documented unsuccessful artifact search and present inability to independently execute Cox.
+10. Remove or verify all remaining `[SA]` claims before they enter `paper.tex`, including ADAPT’s threshold/log details and every categorical assurance or rollback statement.
+
+session_id: 20260713_010134_83c02b

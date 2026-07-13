@@ -21,6 +21,20 @@ pub enum NodeStrategy {
     /// safety consequence of crossing the heterogeneous boundary without the
     /// n-f gate — OBSERVED, never derived from the flag.
     CoxStyle,
+    /// Cox switching on its ACTUAL safety mechanism: a StableCheckpoint
+    /// certified by the target engine's BFT quorum (2f+1), rather than "no gate"
+    /// (CoxStyle) or SAGE's n-f gate. This models Cox's real quorum threshold on
+    /// our engine interface. It is IDENTICAL to the SAGE code path except the
+    /// cutover-quorum threshold is 2f+1 (Cox's checkpoint quorum) instead of n-f
+    /// (SAGE's gate) — the cleanest possible isolation of the contribution. It
+    /// is NOT a line-for-line Cox port: it omits Cox's epoch-mismatch catch-up
+    /// sub-protocol (a liveness/completeness feature, not safety-relevant to the
+    /// boundary fork differential). With n=6, f=1 a 2f+1=3 checkpoint quorum is
+    /// reachable by EACH side of a 3/3 partition (2 disjoint 3-quorums fit in 6
+    /// once n>3f+1), so Cox's own gate still forks at the heterogeneous
+    /// boundary; SAGE's n-f=5 is unreachable by a side of 3. OBSERVED, never
+    /// derived from the flag.
+    CoxFaithful,
 }
 
 /// Configuration for a local multi-validator runtime.
@@ -62,6 +76,15 @@ pub struct NodeConfig {
 
     /// Migration strategy applied by every validator.
     pub strategy: NodeStrategy,
+
+    /// Synthetic transactions minted per block for the throughput measurement.
+    /// These are deterministic and HEIGHT-derived (not proposer-derived), so
+    /// every correct proposer at a given height mints a byte-identical block —
+    /// keeping the no-fault path fork-free while giving a real, non-zero
+    /// committed-transaction count to measure TPS from. 0 (default) preserves
+    /// the original empty-block behavior for the fork/partition experiments,
+    /// where proposer-dependent coinbase (not this) is what must vary.
+    pub workload_txs_per_block: u64,
 }
 
 impl NodeConfig {
@@ -82,12 +105,20 @@ impl NodeConfig {
             proposal_interval_ms: 50,
             mean_delay_micros: 5_000,
             strategy: NodeStrategy::Sage,
+            workload_txs_per_block: 0,
         }
     }
 
     /// Builder-style override for the migration strategy.
     pub fn with_strategy(mut self, strategy: NodeStrategy) -> Self {
         self.strategy = strategy;
+        self
+    }
+
+    /// Builder-style override for the synthetic per-block workload used by the
+    /// throughput measurement.
+    pub fn with_workload_txs_per_block(mut self, txs: u64) -> Self {
+        self.workload_txs_per_block = txs;
         self
     }
 

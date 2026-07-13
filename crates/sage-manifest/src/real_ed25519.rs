@@ -59,6 +59,10 @@ impl RealEd25519Scheme {
 
 #[cfg(feature = "real-crypto")]
 impl SignatureScheme for RealEd25519Scheme {
+    fn authenticates_signer(&self) -> bool {
+        true
+    }
+
     fn sign(&self, signer: ValidatorId, payload: Hash32) -> ManifestResult<SignatureEnvelope> {
         let key = self
             .sign_keys

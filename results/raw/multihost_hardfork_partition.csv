@@ -1,0 +1,7 @@
+experiment,n,strategy,validator_id,region,committed_height,wall_ms,cutover_height,migration_success,has_cutover_cert,observed_fork
+multihost,6,hardfork,0,oci-sg-ad1,4,150000,4,false,true,true
+multihost,6,hardfork,1,oci-sg-ad1,3,150005,4,false,false,true
+multihost,6,hardfork,2,oci-sg-ad1,3,150000,4,false,false,true
+multihost,6,hardfork,3,oci-sg-ad1,4,150002,4,false,true,true
+multihost,6,hardfork,4,oci-sg-ad1,3,150009,4,false,false,true
+multihost,6,hardfork,5,oci-sg-ad1,3,150002,4,false,false,true

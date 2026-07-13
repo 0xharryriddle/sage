@@ -22,7 +22,9 @@ set -u
 cd "$(dirname "$0")/.."
 
 RUNS="${1:-1}"
-N_LIST="${2:-4 7 10 13 16 19 22}"
+# Keep the default grid within the single-host debug testbed's reliable
+# timing envelope; callers can pass a larger N_LIST for slower machines/runs.
+N_LIST="${2:-4 7 10 13}"
 MAX_HEIGHT="${3:-8}"
 BIN=./target/debug/spawn_testbed
 OUT=results/raw/m4_message_complexity.csv
@@ -33,7 +35,7 @@ if [ ! -x "$BIN" ]; then
 fi
 
 mkdir -p results/raw
-echo "n,f,max_height,trial,migration_success,observed_fork,total_messages,per_round" > "$OUT"
+echo "n,f,max_height,trial,migration_success,observed_fork,total_messages,per_round,replay_context_ok,manifest_payload_ok" > "$OUT"
 
 echo "=== M4 message-complexity sweep (SAGE, no partition) ==="
 echo "    n in [$N_LIST], max_height=$MAX_HEIGHT, runs=$RUNS per n"
@@ -53,6 +55,8 @@ for N in $N_LIST; do
     tm=$(echo "$line"   | grep -o '"total_messages":[0-9]*'      | grep -o '[0-9]*')
     ms=$(echo "$line"   | grep -o '"migration_success":[0-9]*'   | grep -o '[0-9]*')
     of=$(echo "$line"   | grep -o '"observed_fork":[a-z]*'       | grep -o '[a-z]*$')
+    rc=$(echo "$line"   | grep -o '"replay_context_ok":[a-z]*'   | grep -o '[a-z]*$')
+    mp=$(echo "$line"   | grep -o '"manifest_payload_ok":[a-z]*'  | grep -o '[a-z]*$')
     mh=$(echo "$line"   | grep -o '"max_finalized_height":[0-9]*'| grep -o '[0-9]*')
     [ -z "$tm" ] && tm=0
     if [ -z "$mh" ] || [ "$mh" -eq 0 ]; then
@@ -60,8 +64,16 @@ for N in $N_LIST; do
     else
       per=$(( tm / mh ))
     fi
-    echo "n=$N f=$F trial=$i  total_messages=$tm  per_round=$per  success=${ms:-?}/$N  fork=${of:-?}"
-    echo "$N,$F,$MAX_HEIGHT,$i,${ms:-0},${of:-unknown},$tm,$per" >> "$OUT"
+    if [ "${rc:-false}" != "true" ]; then
+      echo "FAILED: replay_context_ok was ${rc:-missing} for n=$N trial=$i"
+      exit 1
+    fi
+    if [ "${mp:-false}" != "true" ]; then
+      echo "FAILED: manifest_payload_ok was ${mp:-missing} for n=$N trial=$i"
+      exit 1
+    fi
+    echo "n=$N f=$F trial=$i  total_messages=$tm  per_round=$per  success=${ms:-?}/$N  fork=${of:-?}  replay_context_ok=$rc  manifest_payload_ok=$mp"
+    echo "$N,$F,$MAX_HEIGHT,$i,${ms:-0},${of:-unknown},$tm,$per,$rc,$mp" >> "$OUT"
   done
 done
 

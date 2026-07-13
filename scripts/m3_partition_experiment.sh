@@ -11,6 +11,10 @@
 # gate. The broken control firing is what makes SAGE's zero-fork meaningful
 # rather than structural ("fork impossible by construction").
 #
+# Replay/manifest evidence is recorded for every run. Under this partition the
+# expected no-quorum paths may not produce a quorum-bound replay/manifest root,
+# so fork behavior is the pass/fail contract for M3.
+#
 # Usage: bash scripts/m3_partition_experiment.sh [RUNS] [N] [H_C]
 set -u
 
@@ -27,25 +31,42 @@ fi
 
 run_arm() {
   local strat="$1"
-  local forks=0 total=0
+  local expected_forks="$2"
+  local forks=0 total=0 replay_fail=0 manifest_fail=0
   for i in $(seq 1 "$RUNS"); do
-    out=$("$BIN" --n "$N" --strategy "$strat" --partition $((N/2)) \
+    json=$("$BIN" --n "$N" --strategy "$strat" --partition $((N/2)) \
       --h-c "$HC" --max-height 8 --max-secs 20 \
-      --out "/tmp/m3_${strat}_${i}.csv" 2>/dev/null | grep -o '"observed_fork":[a-z]*')
+      --out "/tmp/m3_${strat}_${i}.csv" 2>/dev/null)
+    out=$(printf '%s\n' "$json" | grep -o '"observed_fork":[a-z]*')
+    replay=$(printf '%s\n' "$json" | grep -o '"replay_context_ok":[a-z]*')
+    manifest=$(printf '%s\n' "$json" | grep -o '"manifest_payload_ok":[a-z]*')
     total=$((total+1))
     case "$out" in
       *true*) forks=$((forks+1)); echo "  run $i: FORK observed" ;;
       *false*) echo "  run $i: no fork" ;;
       *) echo "  run $i: NO RESULT (child failure)" ;;
     esac
+    case "$replay" in
+      *true*) ;;
+      *) replay_fail=$((replay_fail+1)); echo "  run $i: replay context artifact unavailable" ;;
+    esac
+    case "$manifest" in
+      *true*) ;;
+      *) manifest_fail=$((manifest_fail+1)); echo "  run $i: manifest payload artifact unavailable" ;;
+    esac
   done
-  echo "  => $strat: $forks/$total runs forked"
+  echo "  => $strat: $forks/$total runs forked; replay_context_ok unavailable=$replay_fail; manifest_payload_ok unavailable=$manifest_fail"
+  if [ "$forks" -ne "$expected_forks" ]; then
+    echo "FAILED: $strat expected $expected_forks/$RUNS forks, observed $forks/$total"
+    return 1
+  fi
+  return 0
 }
 
 echo "=== SAGE (quorum-gated, n-f=$((N-1)) cutover quorum) under $((N/2))/$((N/2)) partition ==="
-run_arm sage
+run_arm sage 0 || exit 1
 echo "=== HARDFORK (broken control, no gate) under $((N/2))/$((N/2)) partition ==="
-run_arm hardfork
+run_arm hardfork "$RUNS" || exit 1
 echo ""
 echo "Expected: SAGE 0/$RUNS forks (minority side < n-f cannot switch);"
 echo "          HARDFORK $RUNS/$RUNS forks (blind switch at h_c, both sides fork)."

@@ -1,0 +1,2 @@
+profile,delay_ms,jitter_ms,loss_pct,strategy,n,f,max_height,cutover_height,migration_success,observed_fork,total_messages,run_status,skip_reason
+skip,0,0,0,sage,4,1,8,,false,false,0,skipped,set RUN_NETEM=1 to apply tc netem to loopback

@@ -1,4 +1,4 @@
-use sage_core::Height;
+use sage_core::{Hash32, Height};
 
 pub type ControllerResult<T> = Result<T, ControllerError>;
 
@@ -14,4 +14,12 @@ pub enum ControllerError {
     MissingRollbackAnchor,
     #[error("rollback deadline passed at height {height}")]
     RollbackDeadlinePassed { height: Height },
+    #[error("missing replay context root for {blocks} provisional block contexts")]
+    MissingReplayContextRoot { blocks: usize },
+    #[error("replay context root mismatch: expected {expected}, actual {actual}")]
+    ReplayContextRootMismatch { expected: Hash32, actual: Hash32 },
+    #[error("replay context incomplete: expected {expected} block contexts, actual {actual}")]
+    ReplayContextIncomplete { expected: usize, actual: usize },
+    #[error("replay context height mismatch: expected {expected}, actual {actual}")]
+    ReplayContextHeightMismatch { expected: Height, actual: Height },
 }

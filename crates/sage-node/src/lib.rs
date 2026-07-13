@@ -4,78 +4,50 @@
 //! wall-clock polling loop rather than a deterministic event queue.  The
 //! HotStuff pacemaker (timeout certificates, view advancement) is engaged
 //! so that the real-node testbed exercises the full protocol.
+//!
+//! Robustness gate (P1-D): the runtime/consensus path must not panic. We deny
+//! `unwrap`/`expect` in non-test builds; test code may still use them freely.
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 pub mod config;
+pub mod cutover_gate;
+pub mod error;
 pub mod fork_detector;
+pub mod metrics;
+pub mod process_result;
 
 use config::NodeConfig;
 use sage_consensus::{
     ConsensusEngine, ConsensusMessage, HotStuffEngine, HotStuffMessage, MessageEnvelope, PoaEngine,
     ProposeContext, SageMessage, ValidatorSet,
 };
-use sage_controller::{ReadinessContext, SageController, ShadowRecord};
+use sage_controller::{
+    ReadinessContext, ReplayBlockContext, ReplayContext, SageController, ShadowRecord,
+};
 use sage_core::{
     Block, ChainState, ConsensusStateEnvelope, EngineId, EngineKind, ExecutionState,
     FinalizedBlock, Hash32, Height, PlatformState, ValidatorId, View,
 };
 use sage_network::{InMemoryTransport, Transport};
-use sage_store::{BlockStore, MemoryBackend, SafetyStore, StateStore, VoteRecord};
-use std::collections::BTreeSet;
+use sage_store::{
+    BlockStore, CommittedTransition, MemoryBackend, MigrationDecisionRecord, MigrationStore,
+    SafetyStore, StateStore, TransactionalStore, VoteRecord,
+};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Error type for the local node runtime.
-#[derive(Debug)]
-pub enum NodeError {
-    Transport(String),
-    Consensus(String),
-    Controller(String),
-    Io(String),
-    Store(String),
-}
+pub use error::{NodeError, NodeResult};
 
-pub type NodeResult<T> = Result<T, NodeError>;
+pub use metrics::NodeMetrics;
 
-impl From<sage_network::NetworkError> for NodeError {
-    fn from(e: sage_network::NetworkError) -> Self {
-        NodeError::Transport(e.to_string())
-    }
-}
-
-impl From<sage_consensus::ConsensusError> for NodeError {
-    fn from(e: sage_consensus::ConsensusError) -> Self {
-        NodeError::Consensus(e.to_string())
-    }
-}
-
-impl From<sage_core::CoreError> for NodeError {
-    fn from(e: sage_core::CoreError) -> Self {
-        NodeError::Consensus(e.to_string())
-    }
-}
-
-impl From<sage_store::StoreError> for NodeError {
-    fn from(e: sage_store::StoreError) -> Self {
-        NodeError::Store(e.to_string())
-    }
-}
-
-impl From<serde_json::Error> for NodeError {
-    fn from(e: serde_json::Error) -> Self {
-        NodeError::Store(e.to_string())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Metrics
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Default, serde::Serialize)]
-pub struct NodeMetrics {
-    pub finalized_blocks: u64,
-    pub migration_success: bool,
-    pub safety_violation: bool,
-    pub max_finalized_height: u64,
-    pub total_duration_secs: f64,
+/// Exact identity of a signed cutover statement. Quorum accounting must use
+/// every signed field; otherwise shares for different decisions could combine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct CutoverKey {
+    height: Height,
+    boundary_block: Hash32,
+    boundary_root: sage_core::StateRoot,
+    target_engine: EngineId,
 }
 
 // ---------------------------------------------------------------------------
@@ -116,10 +88,12 @@ struct NodeValidator {
     /// Boundary this node is locally ready to cut over at, awaiting quorum:
     /// (cutover_height, boundary_block_hash, boundary_state_root, cert_hash).
     pending_cutover: Option<(Height, Hash32, sage_core::StateRoot, Hash32)>,
-    /// Distinct attesters per boundary (height, boundary_block_hash), including
-    /// this node once it is locally ready. Buffered even before local readiness
-    /// so attestations that arrive early still count toward the quorum.
-    cutover_attesters: std::collections::BTreeMap<(Height, Hash32), BTreeSet<ValidatorId>>,
+    /// Distinct attesters per exact signed payload, including this node once it
+    /// is locally ready. Early attestations remain payload-isolated.
+    cutover_attesters: std::collections::BTreeMap<
+        CutoverKey,
+        BTreeMap<ValidatorId, sage_manifest::SignatureEnvelope>,
+    >,
     /// When true, each proposed block carries a proposer-beneficiary
     /// ("coinbase") transaction so block content depends on WHO proposed it.
     /// Enabled only on the multi-process `ProcessValidator` path, where two
@@ -129,6 +103,15 @@ struct NodeValidator {
     /// proposer per height (no competing blocks) and mutating state via coinbase
     /// would change persisted roots, breaking the restart-continuation test.
     coinbase_enabled: bool,
+    /// Synthetic transactions minted per block for the throughput measurement
+    /// (height-derived, proposer-independent). 0 preserves empty-block behavior.
+    workload_txs_per_block: u64,
+    /// Configured committee used to reject out-of-domain envelopes before they
+    /// mutate consensus or migration-control state.
+    committee: BTreeSet<ValidatorId>,
+    /// Testbed-only deterministic key seed. Production deployments must load
+    /// independently provisioned validator keys instead.
+    attestation_key_seed: u64,
 }
 
 pub use config::NodeStrategy as StrategyKind;
@@ -159,6 +142,9 @@ impl NodeValidator {
             pending_cutover: None,
             cutover_attesters: std::collections::BTreeMap::new(),
             coinbase_enabled: false,
+            workload_txs_per_block: cfg.workload_txs_per_block,
+            committee: cfg.validator_ids().into_iter().collect(),
+            attestation_key_seed: cfg.workload_seed,
         }
     }
 
@@ -184,24 +170,113 @@ impl NodeValidator {
             self.committed.push(block);
         }
 
-        if let Ok(bytes) = self.store.get_state(highest) {
-            self.state = serde_json::from_slice(bytes)?;
+        let bytes = self.store.get_state(highest)?;
+        let restored_state: ChainState = serde_json::from_slice(bytes)?;
+        let stored_root = self.store.state_root(highest).ok_or_else(|| {
+            NodeError::Consensus("committed tip is missing its persisted state root".into())
+        })?;
+        let tip = self.store.get_block(highest)?;
+        if restored_state.root() != stored_root || tip.block.header.state_root != stored_root {
+            return Err(NodeError::Consensus(
+                "committed tip block, snapshot, and stored state root disagree".into(),
+            ));
+        }
+        self.state = restored_state;
+        self.restore_migration_decision()?;
+        Ok(())
+    }
+
+    #[cfg(feature = "real-crypto")]
+    fn restore_migration_decision(&mut self) -> NodeResult<()> {
+        use sage_consensus::QuorumThreshold;
+        use sage_manifest::real_ed25519::RealEd25519Scheme;
+
+        let Some(record) = self.store.migration_decision().cloned() else {
+            return Ok(());
+        };
+        if record.version != 1 {
+            return Err(NodeError::Consensus(format!(
+                "unsupported migration decision version {}",
+                record.version
+            )));
+        }
+        let payload = &record.cut_cert.payload;
+        if payload.chain_id != self.state.platform.chain_id
+            || payload.epoch != self.state.platform.epoch
+            || payload.config_id != self.state.platform.config_id
+            || payload.engine_id != self.target.engine_id()
+        {
+            return Err(NodeError::Consensus(
+                "persisted migration decision is outside the local domain".into(),
+            ));
+        }
+        let boundary_hash = payload.block_hash.ok_or_else(|| {
+            NodeError::Consensus("persisted cutover certificate has no boundary hash".into())
+        })?;
+        let boundary = self.store.get_block(payload.height)?;
+        if boundary.block.hash() != boundary_hash
+            || boundary.block.header.state_root != payload.root
+        {
+            return Err(NodeError::Consensus(
+                "persisted migration decision disagrees with committed boundary".into(),
+            ));
+        }
+
+        let validators = ValidatorSet::equal_power(
+            self.state.platform.config_id,
+            self.state.platform.epoch,
+            self.committee.len() as u32,
+        );
+        let mut scheme = RealEd25519Scheme::new();
+        for signer in &self.committee {
+            scheme.register_deterministic(*signer, self.attestation_key_seed);
+        }
+        record
+            .cut_cert
+            .verify(
+                &validators,
+                QuorumThreshold {
+                    required_power: record.required_power,
+                },
+                &scheme,
+            )
+            .map_err(|err| {
+                NodeError::Consensus(format!("invalid persisted cutover certificate: {err}"))
+            })?;
+
+        self.cutover_height = Some(payload.height);
+        self.bootstrap_target(payload.height, payload.root, record.cut_cert.payload_hash());
+        Ok(())
+    }
+
+    #[cfg(not(feature = "real-crypto"))]
+    fn restore_migration_decision(&mut self) -> NodeResult<()> {
+        if self.store.migration_decision().is_some() {
+            return Err(NodeError::Consensus(
+                "cannot restore a cutover decision without real crypto".into(),
+            ));
         }
         Ok(())
     }
 
     fn persist_finalized(&mut self, block: &FinalizedBlock) -> NodeResult<()> {
-        self.store.put_block(block.clone())?;
         let bytes = serde_json::to_vec(&self.state)?;
-        self.store
-            .put_state(block.block.header.height, self.state.root(), bytes)?;
+        self.store.commit_transition(CommittedTransition {
+            block: block.clone(),
+            state_root: self.state.root(),
+            state: bytes,
+            migration_decision: None,
+        })?;
         Ok(())
     }
 
     fn authoritative_engine(&self) -> EngineId {
         let next = self.next_height();
         match self.strategy {
-            StrategyKind::Sage => {
+            // SAGE and faithful Cox both switch only after their quorum gate
+            // decides `cutover_height`; the ONLY difference between them is the
+            // threshold (n-f vs 2f+1), set in `with_cutover_quorum`.
+            StrategyKind::Sage | StrategyKind::CoxFaithful => {
                 if self.cutover_height.map(|h| next >= h).unwrap_or(false) {
                     self.target.engine_id()
                 } else {
@@ -260,16 +335,62 @@ impl NodeValidator {
             amount: variant,
             nonce: height.get(),
         };
-        let txs: &[sage_core::Transaction] = if self.coinbase_enabled {
-            std::slice::from_ref(&coinbase)
+        // Synthetic throughput workload: `workload_txs_per_block` transactions
+        // whose sender/receiver/amount are derived ONLY from the height (not the
+        // proposer), so every correct proposer at a given height mints a
+        // byte-identical block and the no-fault path stays fork-free while
+        // carrying a real, non-zero transaction count for the TPS measurement.
+        //
+        // The txs are emitted as BALANCED round-trip PAIRS (a->b then b->a, unit
+        // amount, on funded accounts), so each block is state-root NEUTRAL: after
+        // applying a block the account balances return exactly to their prior
+        // values, hence the committed state root is height-invariant. This is
+        // deliberate. The testbed advances execution state only on FINALIZATION
+        // and does not maintain a speculative per-block state tree, so a
+        // state-CHANGING workload would make the proposal's state root depend on
+        // the (possibly pipelined / reordered) in-flight prefix and diverge from
+        // a validator's recomputation under message reordering — a testbed
+        // execution-model artifact unrelated to SAGE's consensus/migration
+        // contribution. A neutral workload decouples the throughput measurement
+        // from that artifact: the transaction COUNT and per-tx execution cost are
+        // real (every tx is applied), only the net balance delta per block is
+        // zero. Accounts 0..FUNDED are seeded (see genesis new_with_accounts), so
+        // unit transfers never underflow and each pair self-cancels.
+        let mut synthetic: Vec<sage_core::Transaction> = Vec::new();
+        if self.workload_txs_per_block > 0 {
+            const FUNDED: u64 = 10; // matches genesis new_with_accounts(10, 1000)
+                                    // Emit floor(N/2) balanced pairs => 2*floor(N/2) real txs. An odd
+                                    // requested count is rounded down to keep every block net-zero.
+            let pairs = self.workload_txs_per_block / 2;
+            for k in 0..pairs {
+                let base = height.get().wrapping_mul(pairs).wrapping_add(k);
+                let a = base % FUNDED;
+                let b = (base + 1) % FUNDED; // a != b since consecutive mod FUNDED
+                let nonce = base.wrapping_mul(2);
+                synthetic.push(sage_core::Transaction {
+                    from: a,
+                    to: b,
+                    amount: 1,
+                    nonce,
+                });
+                synthetic.push(sage_core::Transaction {
+                    from: b,
+                    to: a,
+                    amount: 1,
+                    nonce: nonce.wrapping_add(1),
+                });
+            }
+        }
+        let txs: Vec<sage_core::Transaction> = if self.coinbase_enabled {
+            std::iter::once(coinbase).chain(synthetic).collect()
         } else {
-            &[]
+            synthetic
         };
         let ctx = ProposeContext {
             height,
             parent_hash: parent,
             state: &self.state,
-            txs,
+            txs: &txs,
         };
         if self.authoritative_engine().kind == EngineKind::Poa {
             Ok(self.legacy.propose(ctx)?)
@@ -279,6 +400,7 @@ impl NodeValidator {
     }
 
     fn handle_message(&mut self, msg: MessageEnvelope) -> NodeResult<Vec<MessageEnvelope>> {
+        self.validate_envelope(&msg)?;
         let replies = match msg.message {
             ConsensusMessage::Poa(_) => self.legacy.handle_message(msg)?,
             ConsensusMessage::HotStuff(_) => {
@@ -288,18 +410,168 @@ impl NodeValidator {
             ConsensusMessage::Sage(SageMessage::CutoverAttestation {
                 height,
                 boundary_block,
+                boundary_root,
+                target_engine,
+                signature,
             }) => {
+                let authenticated_share = self.verify_cutover_attestation(
+                    msg.from,
+                    height,
+                    boundary_block,
+                    boundary_root,
+                    target_engine,
+                    &signature,
+                )?;
                 self.cutover_attesters
-                    .entry((height, boundary_block))
+                    .entry(CutoverKey {
+                        height,
+                        boundary_block,
+                        boundary_root,
+                        target_engine,
+                    })
                     .or_default()
-                    .insert(msg.from);
+                    .insert(msg.from, authenticated_share);
                 Vec::new()
             }
+            // This multi-process runtime is concretely PoA->HotStuff (see the
+            // `legacy: PoaEngine` / `target: HotStuffEngine` fields); Raft is a
+            // conforming legacy engine exercised in the deterministic path and
+            // its own unit tests, not this testbed, so its traffic is inert here.
+            ConsensusMessage::Raft(_) => Vec::new(),
         };
         for reply in &replies {
             self.persist_local_vote(reply)?;
         }
         Ok(replies)
+    }
+
+    fn validate_envelope(&self, msg: &MessageEnvelope) -> NodeResult<()> {
+        let platform = &self.state.platform;
+        if msg.to.is_some_and(|to| to != self.id)
+            || msg.chain_id != platform.chain_id
+            || msg.epoch != platform.epoch
+            || msg.config_id != platform.config_id
+            || !self.committee.contains(&msg.from)
+        {
+            return Err(NodeError::Consensus(format!(
+                "rejected out-of-domain envelope from validator {}",
+                msg.from.get()
+            )));
+        }
+        Ok(())
+    }
+
+    fn cutover_payload(
+        &self,
+        height: Height,
+        boundary_block: Hash32,
+        boundary_root: sage_core::StateRoot,
+        target_engine: EngineId,
+    ) -> sage_manifest::certificate::CertificatePayload {
+        sage_manifest::certificate::CertificatePayload {
+            chain_id: self.state.platform.chain_id.clone(),
+            epoch: self.state.platform.epoch,
+            config_id: self.state.platform.config_id,
+            kind: sage_manifest::certificate::CertificateKind::Cutover,
+            height,
+            root: boundary_root,
+            block_hash: Some(boundary_block),
+            engine_id: target_engine,
+        }
+    }
+
+    #[cfg(feature = "real-crypto")]
+    fn sign_cutover_attestation(
+        &self,
+        height: Height,
+        boundary_block: Hash32,
+        boundary_root: sage_core::StateRoot,
+        target_engine: EngineId,
+    ) -> NodeResult<Vec<u8>> {
+        use sage_manifest::real_ed25519::RealEd25519Scheme;
+        use sage_manifest::{SignatureEnvelope, SignatureScheme};
+
+        let payload = self.cutover_payload(height, boundary_block, boundary_root, target_engine);
+        let hash = sage_core::crypto::hash_canonical(
+            sage_core::crypto::HashDomain::CertificateV1,
+            &payload,
+        );
+        let mut scheme = RealEd25519Scheme::new();
+        scheme.register_deterministic(self.id, self.attestation_key_seed);
+        match scheme.sign(self.id, hash) {
+            Ok(SignatureEnvelope::Ed25519 {
+                signature_bytes, ..
+            }) => Ok(signature_bytes),
+            Ok(_) => Err(NodeError::Consensus(
+                "unexpected cutover signature scheme".into(),
+            )),
+            Err(err) => Err(NodeError::Consensus(err.to_string())),
+        }
+    }
+
+    #[cfg(feature = "real-crypto")]
+    fn verify_cutover_attestation(
+        &self,
+        signer: ValidatorId,
+        height: Height,
+        boundary_block: Hash32,
+        boundary_root: sage_core::StateRoot,
+        target_engine: EngineId,
+        signature: &[u8],
+    ) -> NodeResult<sage_manifest::SignatureEnvelope> {
+        use sage_manifest::real_ed25519::RealEd25519Scheme;
+        use sage_manifest::{SignatureEnvelope, SignatureScheme};
+
+        if target_engine != self.target.engine_id() {
+            return Err(NodeError::Consensus(
+                "cutover attestation targets wrong engine".into(),
+            ));
+        }
+        let payload = self.cutover_payload(height, boundary_block, boundary_root, target_engine);
+        let hash = sage_core::crypto::hash_canonical(
+            sage_core::crypto::HashDomain::CertificateV1,
+            &payload,
+        );
+        let mut scheme = RealEd25519Scheme::new();
+        scheme.register_deterministic(signer, self.attestation_key_seed);
+        let envelope = SignatureEnvelope::Ed25519 {
+            signer,
+            payload_hash: hash,
+            signature_bytes: signature.to_vec(),
+        };
+        let signers = BTreeSet::from([signer]);
+        scheme
+            .verify(&signers, hash, &envelope)
+            .map_err(|err| NodeError::Consensus(format!("invalid cutover attestation: {err}")))?;
+        Ok(envelope)
+    }
+
+    #[cfg(not(feature = "real-crypto"))]
+    fn sign_cutover_attestation(
+        &self,
+        _height: Height,
+        _boundary_block: Hash32,
+        _boundary_root: sage_core::StateRoot,
+        _target_engine: EngineId,
+    ) -> NodeResult<Vec<u8>> {
+        Err(NodeError::Consensus(
+            "quorum cutover requires the real-crypto feature".into(),
+        ))
+    }
+
+    #[cfg(not(feature = "real-crypto"))]
+    fn verify_cutover_attestation(
+        &self,
+        _signer: ValidatorId,
+        _height: Height,
+        _boundary_block: Hash32,
+        _boundary_root: sage_core::StateRoot,
+        _target_engine: EngineId,
+        _signature: &[u8],
+    ) -> NodeResult<sage_manifest::SignatureEnvelope> {
+        Err(NodeError::Consensus(
+            "quorum cutover requires the real-crypto feature".into(),
+        ))
     }
 
     /// Like `handle_message`, but swallows BENIGN BFT protocol rejections that
@@ -316,6 +588,7 @@ impl NodeValidator {
         &mut self,
         msg: MessageEnvelope,
     ) -> NodeResult<Vec<MessageEnvelope>> {
+        self.validate_envelope(&msg)?;
         // SAGE cutover attestations are not engine traffic — record them toward
         // the quorum via the normal handler (which never errors on them).
         if matches!(msg.message, ConsensusMessage::Sage(_)) {
@@ -328,6 +601,8 @@ impl NodeValidator {
                 self.target.handle_message(msg)
             }
             ConsensusMessage::Sage(_) => unreachable!("handled above"),
+            // PoA->HotStuff runtime: Raft traffic is inert here (see handle_message).
+            ConsensusMessage::Raft(_) => Ok(Vec::new()),
         };
         let replies = match result {
             Ok(replies) => replies,
@@ -378,7 +653,10 @@ impl NodeValidator {
     fn decide_cutover(&mut self, height: Height) -> Option<Height> {
         let schedule = self.controller.schedule;
         match self.strategy {
-            StrategyKind::Sage => None,
+            // SAGE and faithful Cox decide cutover via the quorum-gated path
+            // (drive_quorum_cutover), not the schedule, so decide_cutover is a
+            // no-op for both.
+            StrategyKind::Sage | StrategyKind::CoxFaithful => None,
             StrategyKind::HardFork => {
                 if height.get() >= schedule.h_c.get() && self.cutover_height.is_none() {
                     self.cutover_height = Some(schedule.h_c);
@@ -571,10 +849,30 @@ impl NodeValidator {
                             let bhash = block.block.hash();
                             self.pending_cutover =
                                 Some((cut_h, bhash, block.block.header.state_root, bhash));
+                            let target_engine = self.target.engine_id();
+                            let signature = self.sign_cutover_attestation(
+                                cut_h,
+                                bhash,
+                                block.block.header.state_root,
+                                target_engine,
+                            )?;
+                            let authenticated_share = self.verify_cutover_attestation(
+                                self.id,
+                                cut_h,
+                                bhash,
+                                block.block.header.state_root,
+                                target_engine,
+                                &signature,
+                            )?;
                             self.cutover_attesters
-                                .entry((cut_h, bhash))
+                                .entry(CutoverKey {
+                                    height: cut_h,
+                                    boundary_block: bhash,
+                                    boundary_root: block.block.header.state_root,
+                                    target_engine,
+                                })
                                 .or_default()
-                                .insert(self.id);
+                                .insert(self.id, authenticated_share);
                         }
                     }
                 }
@@ -594,32 +892,97 @@ impl NodeValidator {
     /// validators have attested the SAME boundary. Returns any attestation
     /// message to broadcast this tick. No-op when the quorum gate is disabled
     /// (`cutover_quorum == None`) or there is no pending boundary.
-    fn drive_quorum_cutover(&mut self) -> Vec<MessageEnvelope> {
+    fn drive_quorum_cutover(&mut self) -> NodeResult<Vec<MessageEnvelope>> {
         let Some(threshold) = self.cutover_quorum else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
         if self.cutover_height.is_some() {
-            return Vec::new(); // already switched
+            return Ok(Vec::new()); // already switched
         }
         let Some((cut_h, bhash, root, cert)) = self.pending_cutover else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
 
-        // Switch iff the boundary has n-f distinct attesters.
+        // Switch iff the boundary has n-f distinct attesters. The decision
+        // predicate is the pure `cutover_gate::gate_open`, which is the exact
+        // function the TLA+/Rust conformance harness exercises (see
+        // crates/sage-node/tests/formal_conformance.rs and formal/CORRESPONDENCE.md),
+        // so the runtime and the model check share one gate implementation.
         let attesters = self
             .cutover_attesters
-            .get(&(cut_h, bhash))
+            .get(&CutoverKey {
+                height: cut_h,
+                boundary_block: bhash,
+                boundary_root: root,
+                target_engine: self.target.engine_id(),
+            })
             .map(|s| s.len() as u64)
             .unwrap_or(0);
-        if attesters >= threshold {
+        if cutover_gate::gate_open(attesters, threshold) {
+            #[cfg(feature = "real-crypto")]
+            {
+                use sage_consensus::QuorumThreshold;
+                use sage_manifest::real_ed25519::RealEd25519Scheme;
+
+                let key = CutoverKey {
+                    height: cut_h,
+                    boundary_block: bhash,
+                    boundary_root: root,
+                    target_engine: self.target.engine_id(),
+                };
+                let shares = self.cutover_attesters.get(&key).cloned().ok_or_else(|| {
+                    NodeError::Consensus("cutover quorum opened without signature shares".into())
+                })?;
+                let cut_cert = sage_manifest::CutoverCertificate {
+                    payload: self.cutover_payload(cut_h, bhash, root, key.target_engine),
+                    shares,
+                };
+                let validators = ValidatorSet::equal_power(
+                    self.state.platform.config_id,
+                    self.state.platform.epoch,
+                    self.committee.len() as u32,
+                );
+                let mut scheme = RealEd25519Scheme::new();
+                for signer in &self.committee {
+                    scheme.register_deterministic(*signer, self.attestation_key_seed);
+                }
+                cut_cert
+                    .verify(
+                        &validators,
+                        QuorumThreshold {
+                            required_power: threshold,
+                        },
+                        &scheme,
+                    )
+                    .map_err(|err| {
+                        NodeError::Consensus(format!(
+                            "invalid completed cutover certificate: {err}"
+                        ))
+                    })?;
+                // Persist the verified authority decision before exposing target
+                // authority. The next storage phase replaces this memory backend
+                // with a transactional durable implementation.
+                self.store.put_migration_decision(MigrationDecisionRecord {
+                    version: 1,
+                    required_power: threshold,
+                    cut_cert,
+                })?;
+            }
+            #[cfg(not(feature = "real-crypto"))]
+            return Err(NodeError::Consensus(
+                "quorum cutover cannot switch authority without real crypto".into(),
+            ));
+
             self.cutover_height = Some(cut_h);
             self.bootstrap_target(cut_h, root, cert);
             self.pending_cutover = None;
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         // Not yet quorate: (re)broadcast our attestation so peers can count us.
-        vec![MessageEnvelope {
+        let target_engine = self.target.engine_id();
+        let signature = self.sign_cutover_attestation(cut_h, bhash, root, target_engine)?;
+        Ok(vec![MessageEnvelope {
             from: self.id,
             to: None,
             chain_id: self.state.platform.chain_id.clone(),
@@ -628,8 +991,11 @@ impl NodeValidator {
             message: ConsensusMessage::Sage(SageMessage::CutoverAttestation {
                 height: cut_h,
                 boundary_block: bhash,
+                boundary_root: root,
+                target_engine,
+                signature,
             }),
-        }]
+        }])
     }
 
     /// Expected proposer for a given height (round-robin).
@@ -656,7 +1022,7 @@ impl NodeValidator {
     /// proposer selection above).
     fn authoritative_engine_at(&self, height: Height) -> EngineId {
         match self.strategy {
-            StrategyKind::Sage => {
+            StrategyKind::Sage | StrategyKind::CoxFaithful => {
                 if self.cutover_height.map(|h| height >= h).unwrap_or(false) {
                     self.target.engine_id()
                 } else {
@@ -784,7 +1150,10 @@ impl LocalRuntime {
 
             // ── Deliver queued messages with transport locked ──
             {
-                let mut tport = self.transport.lock().unwrap();
+                let mut tport = self
+                    .transport
+                    .lock()
+                    .map_err(|e| NodeError::Lock(format!("transport mutex poisoned: {e}")))?;
                 for i in 0..self.nodes.len() {
                     let id = self.nodes[i].id;
                     let msgs: Vec<MessageEnvelope> = tport.recv(id)?;
@@ -871,7 +1240,9 @@ impl LocalRuntime {
 
                             // Broadcast proposal + replies to other validators
                             {
-                                let mut tport = self.transport.lock().unwrap();
+                                let mut tport = self.transport.lock().map_err(|e| {
+                                    NodeError::Lock(format!("transport mutex poisoned: {e}"))
+                                })?;
                                 let _ = tport.broadcast(node.id, msg);
                                 for reply in replies {
                                     let _ = tport.broadcast(node.id, reply);
@@ -882,7 +1253,9 @@ impl LocalRuntime {
                             let (_finalized, pacemaker_msgs) =
                                 node.try_finalize(view_timeout_ms)?;
                             {
-                                let mut tport = self.transport.lock().unwrap();
+                                let mut tport = self.transport.lock().map_err(|e| {
+                                    NodeError::Lock(format!("transport mutex poisoned: {e}"))
+                                })?;
                                 for pm in pacemaker_msgs {
                                     let _ = tport.broadcast(node.id, pm);
                                 }
@@ -917,48 +1290,7 @@ impl LocalRuntime {
 // ProcessValidator — one validator, one process, transport-generic
 // ---------------------------------------------------------------------------
 
-/// Result of a single-validator process run, serializable so an orchestrator
-/// can parse one JSON line per process and check cross-process agreement.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct ProcessResult {
-    pub validator: u32,
-    pub migration_success: bool,
-    pub cutover_height: Option<u64>,
-    pub max_finalized_height: u64,
-    pub total_duration_secs: f64,
-    /// (height, block-hash hex) for every committed block, so the orchestrator
-    /// can detect an OBSERVED cross-process fork: two processes reporting
-    /// different hashes at the same height.
-    pub committed: Vec<(u64, String)>,
-    /// Hex of the ed25519-signed cutover certificate payload, present only when
-    /// this node sealed the migration with real crypto. Empty otherwise.
-    pub cutover_cert: Option<String>,
-    /// Hex of the cutover certificate payload hash this node signed. The
-    /// orchestrator re-derives each validator's verifying key from its id+seed
-    /// and verifies `cutover_cert` against this hash, then counts distinct
-    /// valid signers toward the 2f+1 CutCert threshold.
-    pub cutover_payload_hash: Option<String>,
-    /// Workload seed this node ran with — the orchestrator needs it to
-    /// re-derive deterministic verifying keys for signature verification.
-    pub seed: u64,
-    /// Total consensus messages this validator actually wrote to the wire over
-    /// the whole run (real socket sends, excluding partition-blocked and
-    /// impairment-dropped). The orchestrator sums these across validators to
-    /// plot empirical per-round message complexity against n (expected O(n^2)
-    /// for an all-to-all BFT broadcast pattern).
-    pub messages_sent: u64,
-    /// Per-committed-block diagnostic detail: (height, state_root_hex,
-    /// engine_kind) for every committed block. Lets an investigator decide
-    /// whether a height where two validators report different BLOCK HASHES is a
-    /// genuine state-level safety violation (different state_root) or merely a
-    /// boundary-encoding artifact: the block hash binds `engine_id`
-    /// (block.rs encode_canonical), so the SAME logical block (identical txs,
-    /// identical state_root, identical parent) finalized under PoA on one node
-    /// and under HotStuff on another at the cutover boundary hashes differently
-    /// while representing the same state. Empty unless populated by the run.
-    #[serde(default)]
-    pub committed_detail: Vec<(u64, String, String)>,
-}
+pub use process_result::ProcessResult;
 
 /// Drives exactly ONE validator over an arbitrary `Transport`. Unlike
 /// `LocalRuntime` (which owns every node and self-delivers the proposer's
@@ -989,6 +1321,12 @@ pub struct ProcessValidator<T: Transport> {
     /// exercises the detector against a genuine Byzantine action rather than a
     /// partition.
     equivocate_at: Option<Height>,
+    /// Commit timeline captured during the run: one entry per newly finalized
+    /// height, recording (height, elapsed_micros_at_first_observation,
+    /// cumulative_tx_count). Used to compute committed TPS and inter-commit
+    /// finalization-gap percentiles (the empirical T_bdy liveness bound) without
+    /// altering consensus. Populated only by the run loop; empty otherwise.
+    commit_timeline: Vec<(u64, u64, u64)>,
 }
 
 impl<T: Transport> ProcessValidator<T> {
@@ -1014,6 +1352,7 @@ impl<T: Transport> ProcessValidator<T> {
             partition_at: None,
             partition_engaged: false,
             equivocate_at: None,
+            commit_timeline: Vec::new(),
         }
     }
 
@@ -1055,6 +1394,19 @@ impl<T: Transport> ProcessValidator<T> {
     /// ignore it and switch unconditionally at h_c (the broken control).
     pub fn with_cutover_quorum(mut self) -> Self {
         let threshold = (self.config.n - self.config.f) as u64;
+        self.node.cutover_quorum = Some(threshold);
+        self
+    }
+
+    /// Enable faithful Cox's checkpoint-quorum gate with threshold `2f+1` (the
+    /// target BFT quorum, Cox's StableCheckpoint quorum), as opposed to SAGE's
+    /// `n-f`. Same code path as `with_cutover_quorum`, only the threshold
+    /// differs — the cleanest isolation of SAGE's contribution. With n=6, f=1
+    /// this is 3, which EACH side of a 3/3 partition can reach (two disjoint
+    /// 3-quorums fit in 6 once n>3f+1), so faithful Cox's own gate still admits
+    /// a cross-boundary fork, whereas SAGE's n-f=5 does not.
+    pub fn with_cox_checkpoint_quorum(mut self) -> Self {
+        let threshold = (2 * self.config.f + 1) as u64;
         self.node.cutover_quorum = Some(threshold);
         self
     }
@@ -1133,7 +1485,7 @@ impl<T: Transport> ProcessValidator<T> {
             // attestation and switch engines iff n-f distinct validators have
             // attested the same boundary. A partitioned minority never reaches
             // n-f, so it never switches — no fork.
-            for msg in self.node.drive_quorum_cutover() {
+            for msg in self.node.drive_quorum_cutover()? {
                 self.transport.broadcast(id, msg)?;
             }
 
@@ -1206,6 +1558,21 @@ impl<T: Transport> ProcessValidator<T> {
                 }
             }
 
+            // ── Capture commit timeline for TPS / inter-commit-gap metrics ──
+            // Record any heights finalized since the last iteration with the
+            // elapsed wall-clock time and cumulative tx count. This is a passive
+            // observation; it never influences consensus.
+            let observed = self.commit_timeline.len();
+            if self.node.committed.len() > observed {
+                let now_micros = start.elapsed().as_micros() as u64;
+                let mut cum_txs: u64 = self.commit_timeline.last().map(|(_, _, t)| *t).unwrap_or(0);
+                for b in self.node.committed.iter().skip(observed) {
+                    cum_txs = cum_txs.saturating_add(b.block.txs.len() as u64);
+                    self.commit_timeline
+                        .push((b.block.header.height.get(), now_micros, cum_txs));
+                }
+            }
+
             std::thread::sleep(Duration::from_millis(self.config.pacemaker_tick_ms.min(10)));
         }
 
@@ -1252,7 +1619,52 @@ impl<T: Transport> ProcessValidator<T> {
                 )
             })
             .collect();
+        // ── Throughput and inter-commit finalization-gap metrics ──
+        // Computed from the passively captured commit timeline (height,
+        // elapsed_micros, cumulative_txs). TPS is committed transactions over
+        // wall-clock; the inter-commit gaps are the empirical realization of
+        // the T_bdy liveness bound (paper Thm 3), where the max gap includes
+        // the one-time cutover handoff and the tail should not diverge.
+        let total_txs = self.commit_timeline.last().map(|(_, _, t)| *t).unwrap_or(0);
+        let committed_tps = if secs > 0.0 {
+            total_txs as f64 / secs
+        } else {
+            0.0
+        };
+        let mut gaps: Vec<u64> = Vec::new();
+        let mut cutover_gap_micros = 0u64;
+        let h_c = self.config.migration.h_c.get();
+        for w in self.commit_timeline.windows(2) {
+            let (h_prev, t_prev, _) = w[0];
+            (_, _) = (h_prev, t_prev);
+            let (h_cur, t_cur, _) = w[1];
+            let gap = t_cur.saturating_sub(w[0].1);
+            gaps.push(gap);
+            // The gap whose upper height is the cutover height is the observed
+            // handoff perturbation.
+            if h_cur == h_c {
+                cutover_gap_micros = gap;
+            }
+        }
+        gaps.sort_unstable();
+        let pct = |p: f64| -> u64 {
+            if gaps.is_empty() {
+                return 0;
+            }
+            let idx = ((gaps.len() as f64 - 1.0) * p).round() as usize;
+            gaps[idx.min(gaps.len() - 1)]
+        };
+        let inter_commit_p50_micros = pct(0.50);
+        let inter_commit_p95_micros = pct(0.95);
+        let inter_commit_p99_micros = pct(0.99);
+        let inter_commit_max_micros = gaps.iter().copied().max().unwrap_or(0);
+
         let (cert_sig, cert_hash) = self.sign_cutover_cert();
+        let replay_context_root_hash = self.replay_context_root_hash();
+        let replay_context_root = replay_context_root_hash.map(|root| root.to_string());
+        let manifest_payload_hash = self
+            .manifest_payload_hash(replay_context_root_hash)
+            .map(|hash| hash.to_string());
         ProcessResult {
             validator: self.node.id.get(),
             migration_success: self.node.cutover_height.is_some()
@@ -1266,7 +1678,97 @@ impl<T: Transport> ProcessValidator<T> {
             seed: self.config.workload_seed,
             messages_sent: self.transport.sent_count(),
             committed_detail,
+            replay_context_root,
+            manifest_payload_hash,
+            total_txs,
+            committed_tps,
+            inter_commit_p50_micros,
+            inter_commit_p95_micros,
+            inter_commit_p99_micros,
+            inter_commit_max_micros,
+            cutover_gap_micros,
         }
+    }
+
+    fn replay_context_root_hash(&self) -> Option<Hash32> {
+        // Bind the cutover replay anchor itself; later reversible-window blocks
+        // may legitimately differ across validators that make uneven progress.
+        let blocks: Vec<_> = self
+            .node
+            .committed
+            .iter()
+            .filter(|b| {
+                let h = b.block.header.height;
+                h == self.config.migration.h_c
+            })
+            .map(|b| ReplayBlockContext {
+                chain_id: b.block.header.chain_id.clone(),
+                height: b.block.header.height,
+                // The current testbed executor has no timestamp/basefee/randomness
+                // source. Use explicit defaults so the generated root is stable
+                // and auditable until a production VM supplies real values.
+                timestamp_micros: b.block.header.height.get().saturating_mul(1_000_000),
+                beneficiary: Hash32::ZERO,
+                base_fee: 0,
+                randomness: Hash32::ZERO,
+                oracle_snapshot_root: None,
+            })
+            .collect();
+        if blocks.is_empty() {
+            None
+        } else {
+            Some(ReplayContext::new(blocks).root())
+        }
+    }
+
+    fn manifest_payload_hash(&self, replay_context_root: Option<Hash32>) -> Option<Hash32> {
+        use sage_manifest::certificate::{CertificateKind, CertificatePayload};
+        use sage_manifest::{
+            Certificate, ManifestBuilder, SignatureEnvelope, SimulatedSignatureScheme,
+        };
+        use std::collections::BTreeSet;
+
+        let cut_h = self.node.cutover_height?;
+        let block = self
+            .node
+            .committed
+            .iter()
+            .find(|b| b.block.header.height == cut_h)?;
+        let payload = CertificatePayload {
+            chain_id: self.config.chain_id.clone(),
+            epoch: self.config.epoch,
+            config_id: self.config.config_id,
+            kind: CertificateKind::Cutover,
+            height: cut_h,
+            root: block.block.header.state_root,
+            block_hash: Some(block.block.hash()),
+            engine_id: self.node.target.engine_id(),
+        };
+        let payload_hash = sage_core::crypto::hash_canonical(
+            sage_core::crypto::HashDomain::CertificateV1,
+            &payload,
+        );
+        let cut_cert = Certificate {
+            payload,
+            signers: BTreeSet::from([self.node.id]),
+            signature: SignatureEnvelope::Simulated { payload_hash },
+        };
+        let manifest = ManifestBuilder::new(SimulatedSignatureScheme, self.node.id)
+            .build_with_replay_context_root(
+                self.config.chain_id.clone(),
+                self.config.epoch,
+                self.config.config_id,
+                cut_h,
+                block.block.header.parent_hash,
+                block.block.header.state_root,
+                self.node.legacy.engine_id(),
+                self.node.target.engine_id(),
+                Hash32::ZERO,
+                replay_context_root,
+                cut_cert,
+            )
+            .ok()?;
+        Some(manifest.signing_payload())
     }
 
     /// Sign this validator's view of the cutover certificate with its real
@@ -1337,388 +1839,4 @@ fn hex_encode(bytes: &[u8]) -> String {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use sage_controller::Schedule;
-
-    fn no_fault_schedule() -> Schedule {
-        Schedule {
-            h_d: Height::new(1),
-            h_c: Height::new(3),
-            h_r: Height::new(7),
-            kappa: 1,
-            tau_blocks: 1,
-        }
-    }
-
-    #[test]
-    fn poa_finalizes_blocks() {
-        let cfg = NodeConfig::local_testnet(1, 0, no_fault_schedule(), Height::new(3));
-        let mut rt = LocalRuntime::new(cfg).unwrap();
-        let m = rt.run().unwrap();
-        assert!(m.finalized_blocks > 0, "PoA should finalize blocks");
-        assert!(!m.safety_violation, "no safety violations");
-    }
-
-    /// Regression: the wall-clock runtime must cross the PoA->HotStuff cutover
-    /// for n>=5. Before the view-keyed proposer fix it stalled at h_c-1 because
-    /// the runtime selected the proposer by height while the engine validated by
-    /// view; once the view ran away after the first failed round nobody could
-    /// propose. n=6 is the `run_node` default that surfaced the stall.
-    #[test]
-    fn six_validator_sage_crosses_cutover() {
-        let mut cfg = NodeConfig::local_testnet(6, 1, no_fault_schedule(), Height::new(5));
-        cfg.max_runtime_secs = 5;
-        let mut rt = LocalRuntime::new(cfg).unwrap();
-        let m = rt.run().unwrap();
-        assert!(
-            m.max_finalized_height >= 4,
-            "n=6 must finalize past the cutover height (h_c=3), got {}",
-            m.max_finalized_height
-        );
-        assert!(
-            m.migration_success,
-            "n=6 migration should complete through target finality"
-        );
-        assert!(!m.safety_violation, "no safety violations");
-    }
-
-    /// Regression: the wall-clock runtime must also cross the cutover at higher
-    /// validator counts. Before the monotonic per-view timer (research Bug C)
-    /// the pacemaker emitted a timeout every poll; 2f+1 timeouts formed a TC
-    /// that cleared pending_votes before the lone leader's votes reached quorum,
-    /// so n>=8 raced the view to 100+ and never finalized the first HotStuff
-    /// block. n=12 is well past that boundary.
-    #[test]
-    fn twelve_validator_sage_crosses_cutover() {
-        let mut cfg = NodeConfig::local_testnet(12, 1, no_fault_schedule(), Height::new(5));
-        cfg.max_runtime_secs = 8;
-        let mut rt = LocalRuntime::new(cfg).unwrap();
-        let m = rt.run().unwrap();
-        assert!(
-            m.max_finalized_height >= 4,
-            "n=12 must finalize past the cutover height (h_c=3), got {}",
-            m.max_finalized_height
-        );
-        assert!(
-            m.migration_success,
-            "n=12 migration should complete through target finality"
-        );
-        assert!(!m.safety_violation, "no safety violations");
-    }
-
-    #[test]
-    fn four_validator_poa() {
-        let cfg = NodeConfig::local_testnet(4, 1, no_fault_schedule(), Height::new(4));
-        let mut rt = LocalRuntime::new(cfg).unwrap();
-        let m = rt.run().unwrap();
-        assert!(m.finalized_blocks > 0, "should finalize blocks");
-    }
-
-    /// M1: several independent `ProcessValidator`s, each with NO shared node
-    /// memory, drive the SAME consensus over a shared message bus and must cross
-    /// the PoA->HotStuff cutover and AGREE on every committed block hash. This
-    /// exercises the exact multi-process driver path (every message, including
-    /// the leader's own proposal/vote, round-trips through the transport) using
-    /// the fast in-memory bus instead of real sockets. The TCP path is the same
-    /// driver over `TcpTransport`.
-    ///
-    /// Marked `#[ignore]`: the 6 validator loops are real OS threads driven by a
-    /// wall-clock pacemaker, so under full `cargo test --workspace` parallel load
-    /// they get CPU-starved and a view timer can miss its deadline (intermittent
-    /// ~1/8). It passes reliably in isolation
-    /// (`cargo test -p sage-node --lib multi_process -- --ignored`). The
-    /// authoritative, truly-parallel artifact is the multi-process `spawn_testbed`
-    /// (`make testbed`), which runs separate processes rather than starved threads.
-    #[test]
-    #[ignore = "timing-dependent; threads starve under workspace-parallel load. \
-                Run on demand: `cargo test -p sage-node --lib multi_process -- --ignored`. \
-                Authoritative artifact: `make testbed`."]
-    fn multi_process_validators_agree_across_cutover() {
-        use sage_network::SharedMemoryTransport;
-        use std::collections::BTreeMap;
-
-        let n = 6u32;
-        let ids: Vec<ValidatorId> = (0..n).map(ValidatorId::new).collect();
-        let transports = SharedMemoryTransport::mesh(&ids);
-
-        let handles: Vec<_> = transports
-            .into_iter()
-            .enumerate()
-            .map(|(i, transport)| {
-                let mut cfg = NodeConfig::local_testnet(n, 1, no_fault_schedule(), Height::new(5));
-                cfg.max_runtime_secs = 10;
-                let id = ValidatorId::new(i as u32);
-                std::thread::spawn(move || {
-                    let mut pv = ProcessValidator::new(id, cfg, transport);
-                    // Surface the real error if run() fails, instead of an opaque
-                    // thread-panic at join, so a flake under parallel load is
-                    // diagnosable rather than mysterious.
-                    pv.run()
-                        .unwrap_or_else(|e| panic!("validator {i} run() errored: {e:?}"))
-                })
-            })
-            .collect();
-
-        let results: Vec<ProcessResult> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-
-        // Every validator must cross the cutover and finalize past h_c.
-        for r in &results {
-            assert!(
-                r.max_finalized_height >= 4,
-                "validator {} stalled at height {} (expected >= 4)",
-                r.validator,
-                r.max_finalized_height
-            );
-            assert!(
-                r.migration_success,
-                "validator {} did not complete migration",
-                r.validator
-            );
-        }
-
-        // Cross-process agreement: no two validators may report different hashes
-        // at the same height (that would be an observed fork in the no-fault run).
-        let mut by_height: BTreeMap<u64, String> = BTreeMap::new();
-        for r in &results {
-            for (h, hash) in &r.committed {
-                match by_height.get(h) {
-                    Some(seen) => assert_eq!(
-                        seen, hash,
-                        "observed fork at height {h}: validators disagree on block hash"
-                    ),
-                    None => {
-                        by_height.insert(*h, hash.clone());
-                    }
-                }
-            }
-        }
-        assert!(
-            by_height.len() >= 4,
-            "expected agreement on >=4 heights, got {}",
-            by_height.len()
-        );
-    }
-
-    /// Run n=6 ProcessValidators over a partitioned shared bus (sides {0,1,2}
-    /// and {3,4,5}), partition engaging at h_c, and report whether an observed
-    /// cross-process fork occurred. `quorum_gate` toggles SAGE's quorum-gated
-    /// cutover. This is the in-process analogue of the `spawn_testbed` multi-OS
-    /// experiment, fast enough to run as a unit test.
-    fn run_partitioned(quorum_gate: bool) -> bool {
-        use sage_network::SharedMemoryTransport;
-        use std::collections::BTreeMap;
-
-        let n = 6u32;
-        let h_c = 4u64;
-        // The partition engages at h_c, so the schedule's cutover height MUST be
-        // h_c too: otherwise cutover completes UNPARTITIONED at an earlier height
-        // (all n reach n-f and switch), then the later partition forks the
-        // HotStuff phase regardless of the gate. Matching them is what makes the
-        // quorum gate the decisive variable (mirrors `spawn_testbed --h-c 4`).
-        let sched = Schedule {
-            h_d: Height::new(1),
-            h_c: Height::new(h_c),
-            h_r: Height::new(8),
-            kappa: 1,
-            tau_blocks: 1,
-        };
-        let ids: Vec<ValidatorId> = (0..n).map(ValidatorId::new).collect();
-        let transports = SharedMemoryTransport::mesh(&ids);
-        let side_a: BTreeSet<ValidatorId> = [0, 1, 2].into_iter().map(ValidatorId::new).collect();
-        let side_b: BTreeSet<ValidatorId> = [3, 4, 5].into_iter().map(ValidatorId::new).collect();
-
-        let handles: Vec<_> = transports
-            .into_iter()
-            .enumerate()
-            .map(|(i, transport)| {
-                let mut cfg = NodeConfig::local_testnet(n, 1, sched, Height::new(5));
-                cfg.max_runtime_secs = 8;
-                // Short view timeout: in-process the 6 validator loops are
-                // serialized behind one bus mutex, so side B's view rotation
-                // (0->3 via timeout certificates) is wall-clock-gated. A short
-                // timeout lets the minority side rotate to its in-partition
-                // leader within the test budget; the multi-process testbed runs
-                // truly parallel and forks at the default 200ms.
-                cfg.view_timeout_ms = 25;
-                let id = ValidatorId::new(i as u32);
-                let keep = if i < 3 {
-                    side_a.clone()
-                } else {
-                    side_b.clone()
-                };
-                std::thread::spawn(move || {
-                    let mut pv = ProcessValidator::new(id, cfg, transport)
-                        .with_coinbase()
-                        .with_partition(keep, Height::new(h_c));
-                    if quorum_gate {
-                        pv = pv.with_cutover_quorum();
-                    }
-                    pv.run().unwrap()
-                })
-            })
-            .collect();
-
-        let results: Vec<ProcessResult> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-
-        // Observed fork = two validators report different hashes at one height.
-        let mut by_height: BTreeMap<u64, BTreeSet<String>> = BTreeMap::new();
-        for r in &results {
-            for (h, hash) in &r.committed {
-                by_height.entry(*h).or_default().insert(hash.clone());
-            }
-        }
-        by_height.values().any(|hashes| hashes.len() > 1)
-    }
-
-    /// M3 differential safety result (the central artifact). Both arms run the
-    /// IDENTICAL infrastructure (same partition at h_c, pacemaker, coinbase,
-    /// tolerant handler); the ONLY difference is SAGE's quorum-gated cutover.
-    ///
-    /// - Broken control (no gate, like HardFork): the partition opens a fork
-    ///   window and a fork IS observed — proving the window is genuinely
-    ///   reachable, so a zero-fork result is meaningful, not structural.
-    /// - SAGE (quorum gate): a partitioned side of 3 cannot reach the n-f=5
-    ///   cutover quorum, so neither side switches engines and NO fork occurs.
-    ///
-    /// This is the causal demonstration: same window, gate is what averts it.
-    #[test]
-    #[ignore = "timing-dependent ~16s differential experiment; run on demand with \
-                `cargo test -p sage-node --lib sage_quorum_gate -- --ignored`. \
-                The authoritative, parallel artifact is `spawn_testbed` (5/5 both arms)."]
-    fn sage_quorum_gate_prevents_partition_fork_broken_control_fires() {
-        let broken_control_forks = run_partitioned(false);
-        assert!(
-            broken_control_forks,
-            "broken control (no quorum gate) MUST fork under a 3/3 partition — \
-             otherwise the fork window is not reachable and the SAGE result is vacuous"
-        );
-
-        let sage_forks = run_partitioned(true);
-        assert!(
-            !sage_forks,
-            "SAGE (quorum-gated cutover) must NOT fork: a side of 3 < n-f=5 cannot \
-             form the cutover quorum, so neither side switches engines"
-        );
-    }
-
-    #[test]
-    fn four_validator_sage_migration_reaches_cutover() {
-        let cfg = NodeConfig::local_testnet(4, 1, no_fault_schedule(), Height::new(3));
-        let mut rt = LocalRuntime::new(cfg).unwrap();
-        let m = rt.run().unwrap();
-        assert!(
-            m.finalized_blocks >= 3,
-            "legacy path should reach cutover height"
-        );
-        assert!(
-            m.migration_success,
-            "all validators should observe SAGE cutover"
-        );
-        assert!(!m.safety_violation, "no safety violations");
-    }
-
-    #[test]
-    fn four_validator_sage_finalizes_after_cutover() {
-        let mut cfg = NodeConfig::local_testnet(4, 1, no_fault_schedule(), Height::new(4));
-        cfg.max_runtime_secs = 2;
-        let mut rt = LocalRuntime::new(cfg).unwrap();
-        let m = rt.run().unwrap();
-        assert!(
-            m.finalized_blocks >= 4,
-            "target HotStuff should finalize at least one post-cutover block, got {}",
-            m.finalized_blocks
-        );
-        assert!(
-            m.migration_success,
-            "migration should complete through target finality"
-        );
-        assert!(!m.safety_violation, "no safety violations");
-    }
-
-    #[test]
-    fn store_backed_vote_record_rejects_conflict_after_runtime_restart() {
-        let cfg = NodeConfig::local_testnet(4, 1, no_fault_schedule(), Height::new(1));
-        let mut rt = LocalRuntime::new(cfg).unwrap();
-        let m = rt.run().unwrap();
-        assert!(m.finalized_blocks >= 1);
-
-        let engine_id = EngineId::new(EngineKind::Poa, sage_core::EngineGeneration::new(1));
-        let restarted_store = rt.nodes[0].store.clone();
-        let mut restarted_node_store = restarted_store;
-        let err = restarted_node_store
-            .put_vote(VoteRecord {
-                validator: ValidatorId::new(0),
-                engine_id,
-                view: View::new(1),
-                height: Height::new(1),
-                block_hash: Hash32::new([0xEE; 32]),
-            })
-            .unwrap_err();
-        assert!(matches!(err, sage_store::StoreError::ConflictingVote));
-    }
-
-    #[test]
-    fn restored_node_recovers_committed_height_and_state_snapshot() {
-        let cfg = NodeConfig::local_testnet(4, 1, no_fault_schedule(), Height::new(2));
-        let mut rt = LocalRuntime::new(cfg.clone()).unwrap();
-        let m = rt.run().unwrap();
-        assert!(m.finalized_blocks >= 2);
-
-        let persisted = rt.nodes[0].store.clone();
-        let expected_height = rt.nodes[0].committed.last().unwrap().block.header.height;
-        let expected_root = rt.nodes[0].state.root();
-
-        let mut restarted = LocalRuntime::new(cfg).unwrap();
-        restarted.nodes[0].restore_from_store(persisted).unwrap();
-
-        assert_eq!(
-            restarted.nodes[0].next_height(),
-            expected_height.checked_next().unwrap()
-        );
-        assert_eq!(restarted.nodes[0].state.root(), expected_root);
-        assert_eq!(
-            restarted.nodes[0].committed.len(),
-            rt.nodes[0].committed.len()
-        );
-    }
-
-    #[test]
-    fn restored_runtime_continues_consensus_after_restart() {
-        let mut first_cfg = NodeConfig::local_testnet(4, 1, no_fault_schedule(), Height::new(2));
-        first_cfg.max_runtime_secs = 2;
-        let mut first = LocalRuntime::new(first_cfg.clone()).unwrap();
-        let before = first.run().unwrap();
-        assert!(before.finalized_blocks >= 2);
-
-        let stores: Vec<MemoryBackend> =
-            first.nodes.iter().map(|node| node.store.clone()).collect();
-        let restored_roots: Vec<_> = first.nodes.iter().map(|node| node.state.root()).collect();
-        let restored_lengths: Vec<_> = first
-            .nodes
-            .iter()
-            .map(|node| node.committed.len())
-            .collect();
-
-        let mut second_cfg = first_cfg;
-        second_cfg.max_height = Height::new(4);
-        second_cfg.max_runtime_secs = 2;
-        let mut second = LocalRuntime::new(second_cfg).unwrap();
-        for (idx, store) in stores.into_iter().enumerate() {
-            second.restore_node_from_store(idx, store).unwrap();
-            assert_eq!(second.nodes[idx].state.root(), restored_roots[idx]);
-            assert_eq!(second.nodes[idx].committed.len(), restored_lengths[idx]);
-        }
-
-        let after = second.run().unwrap();
-        assert!(
-            after.finalized_blocks >= 4,
-            "restored runtime should continue to target height, got {}",
-            after.finalized_blocks
-        );
-        assert!(
-            !after.safety_violation,
-            "no safety violations after restart"
-        );
-    }
-}
+mod tests;

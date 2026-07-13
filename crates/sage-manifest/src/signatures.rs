@@ -18,6 +18,11 @@ pub enum SignatureEnvelope {
 }
 
 pub trait SignatureScheme {
+    /// Whether verification cryptographically binds a share to one signer.
+    fn authenticates_signer(&self) -> bool {
+        false
+    }
+
     fn sign(&self, signer: ValidatorId, payload: Hash32) -> ManifestResult<SignatureEnvelope>;
     fn verify(
         &self,

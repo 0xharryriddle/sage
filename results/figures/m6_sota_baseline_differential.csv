@@ -1,0 +1,4 @@
+strategy,trials,fork_rate,migration_rate,replay_ok_rate,manifest_ok_rate
+coxstyle,5,1.0000,0.0000,0.0000,0.0000
+hardfork,5,1.0000,0.0000,0.0000,0.0000
+sage,5,0.0000,0.0000,0.0000,0.0000

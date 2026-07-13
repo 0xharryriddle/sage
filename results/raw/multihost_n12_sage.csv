@@ -1,0 +1,13 @@
+experiment,n,strategy,validator_id,region,committed_height,wall_ms,cutover_height,migration_success,has_cutover_cert,observed_fork,total_txs,committed_tps,inter_commit_p50_micros,inter_commit_p95_micros,inter_commit_p99_micros,inter_commit_max_micros,cutover_gap_micros
+multihost,12,sage,0,oci-sg-ad1,8,2068,4,true,true,false,1600,773.723,29372,509707,509707,509707,10094
+multihost,12,sage,1,oci-sg-ad1,8,2015,4,true,true,false,1600,793.850,28087,510492,510492,510492,23753
+multihost,12,sage,10,oci-sg-ad1,8,2186,4,true,true,false,1600,731.912,26865,509857,509857,509857,23519
+multihost,12,sage,11,oci-sg-ad1,8,2175,4,true,true,false,1600,735.753,26703,522443,522443,522443,23455
+multihost,12,sage,2,oci-sg-ad1,8,2073,4,true,true,false,1600,771.778,25958,515047,515047,515047,25958
+multihost,12,sage,3,oci-sg-ad1,8,2062,4,true,true,false,1600,776.038,29638,513367,513367,513367,23719
+multihost,12,sage,4,oci-sg-ad1,8,2156,4,true,true,false,1600,742.249,26637,512397,512397,512397,23663
+multihost,12,sage,5,oci-sg-ad1,8,2179,4,true,true,false,1600,734.248,23798,515670,515670,515670,13473
+multihost,12,sage,6,oci-sg-ad1,8,2067,4,true,true,false,1600,774.105,23324,529138,529138,529138,23324
+multihost,12,sage,7,oci-sg-ad1,8,2016,4,true,true,false,1600,793.833,27578,509714,509714,509714,23354
+multihost,12,sage,8,oci-sg-ad1,8,2081,4,true,true,false,1600,768.995,37775,498865,498865,498865,10096
+multihost,12,sage,9,oci-sg-ad1,8,2066,4,true,true,false,1600,774.570,26769,509886,509886,509886,23265

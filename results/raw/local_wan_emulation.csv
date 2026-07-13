@@ -1,0 +1,13 @@
+experiment,profile,delay_ms,jitter_ms,loss_pct,n,run,observed_fork,status
+local_wan,metro,10,2,0.0,6,1,false,ok
+local_wan,metro,10,2,0.0,6,2,false,ok
+local_wan,metro,10,2,0.0,6,3,false,ok
+local_wan,continental,50,10,0.1,6,1,false,ok
+local_wan,continental,50,10,0.1,6,2,false,ok
+local_wan,continental,50,10,0.1,6,3,false,ok
+local_wan,intercontinental,120,25,0.5,6,1,false,ok
+local_wan,intercontinental,120,25,0.5,6,2,false,ok
+local_wan,intercontinental,120,25,0.5,6,3,false,ok
+local_wan,adverse,200,50,1.0,6,1,false,ok
+local_wan,adverse,200,50,1.0,6,2,false,ok
+local_wan,adverse,200,50,1.0,6,3,false,ok

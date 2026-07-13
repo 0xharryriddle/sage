@@ -1,4 +1,4 @@
-use crate::{ManifestError, ManifestResult, MigrationManifest, SignatureScheme};
+use crate::{CertificateKind, ManifestError, ManifestResult, MigrationManifest, SignatureScheme};
 use sage_consensus::{QuorumThreshold, ValidatorSet};
 use sage_core::{BlockHash, ChainId, ConfigId, EngineId, Epoch, StateRoot};
 use std::collections::BTreeSet;
@@ -10,6 +10,7 @@ pub struct VerificationContext<'a> {
     pub expected_source_engine: EngineId,
     pub expected_target_engine: EngineId,
     pub local_boundary_root: StateRoot,
+    pub local_boundary_block_hash: BlockHash,
     pub local_parent_hash: BlockHash,
     pub validators: &'a ValidatorSet,
     pub required_cutover_quorum: QuorumThreshold,
@@ -68,6 +69,36 @@ impl<S: SignatureScheme> ManifestVerifier<S> {
                 .contains(&manifest.parent_hash)
         {
             return Err(ManifestError::ManifestNotLegacyFinalized);
+        }
+        let cert = &manifest.cut_cert.payload;
+        if cert.kind != CertificateKind::Cutover {
+            return Err(ManifestError::InvalidManifest(
+                "cut certificate must have Cutover kind".into(),
+            ));
+        }
+        if cert.chain_id != manifest.chain_id
+            || cert.epoch != manifest.epoch
+            || cert.config_id != manifest.config_id
+            || cert.height != manifest.cutover_height
+            || cert.root != manifest.boundary_root
+            || cert.engine_id != manifest.target_engine
+            || cert.block_hash != Some(ctx.local_boundary_block_hash)
+        {
+            return Err(ManifestError::InvalidManifest(
+                "cut certificate payload does not match manifest boundary".into(),
+            ));
+        }
+        // The current envelope carries one individual signature, not an
+        // aggregate. Never grant quorum power to declared IDs that did not
+        // produce the enclosed Ed25519 signature.
+        #[cfg(feature = "real-crypto")]
+        if let crate::SignatureEnvelope::Ed25519 { signer, .. } = &manifest.cut_cert.signature {
+            let authenticated = BTreeSet::from([*signer]);
+            if manifest.cut_cert.signers != authenticated {
+                return Err(ManifestError::InvalidManifest(
+                    "cut certificate signer set is not covered by its signature".into(),
+                ));
+            }
         }
         manifest
             .cut_cert

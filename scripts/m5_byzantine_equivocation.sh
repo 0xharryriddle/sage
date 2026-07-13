@@ -35,7 +35,7 @@ fi
 
 OUT=results/raw/m5_byzantine_equivocation.csv
 mkdir -p results/raw
-echo "run,n,f,h_c,byzantine_id,observed_fork,migration_success,total_messages" > "$OUT"
+echo "run,n,f,h_c,byzantine_id,observed_fork,migration_success,total_messages,replay_context_ok,manifest_payload_ok" > "$OUT"
 
 echo "=== M5 Byzantine equivocation (SAGE, n=$N f=$F, validator 0 equivocates at h_c=$HC) ==="
 echo "    BFT quorum 2f+1=$((2*F+1)); one equivocator is within the f=$F budget."
@@ -52,13 +52,23 @@ for i in $(seq 1 "$RUNS"); do
   of=$(echo "$line" | grep -o '"observed_fork":[a-z]*' | grep -o '[a-z]*$')
   ms=$(echo "$line" | grep -o '"migration_success":[0-9]*' | grep -o '[0-9]*')
   tm=$(echo "$line" | grep -o '"total_messages":[0-9]*' | grep -o '[0-9]*')
+  rc=$(echo "$line" | grep -o '"replay_context_ok":[a-z]*' | grep -o '[a-z]*$')
+  mp=$(echo "$line" | grep -o '"manifest_payload_ok":[a-z]*' | grep -o '[a-z]*$')
   total=$((total+1))
+  if [ "${rc:-false}" != "true" ]; then
+    echo "FAILED: replay_context_ok was ${rc:-missing} for run $i"
+    exit 1
+  fi
+  if [ "${mp:-false}" != "true" ]; then
+    echo "FAILED: manifest_payload_ok was ${mp:-missing} for run $i"
+    exit 1
+  fi
   case "$of" in
-    true)  forks=$((forks+1)); echo "  run $i: FORK observed (success=$ms/$N)" ;;
-    false) echo "  run $i: no fork (success=$ms/$N)" ;;
+    true)  forks=$((forks+1)); echo "  run $i: FORK observed (success=$ms/$N replay_context_ok=$rc manifest_payload_ok=$mp)" ;;
+    false) echo "  run $i: no fork (success=$ms/$N replay_context_ok=$rc manifest_payload_ok=$mp)" ;;
     *)     echo "  run $i: NO RESULT (child failure)" ;;
   esac
-  echo "$i,$N,$F,$HC,0,${of:-unknown},${ms:-0},${tm:-0}" >> "$OUT"
+  echo "$i,$N,$F,$HC,0,${of:-unknown},${ms:-0},${tm:-0},$rc,$mp" >> "$OUT"
 done
 echo ""
 echo "  => SAGE under Byzantine equivocation: $forks/$total runs forked"

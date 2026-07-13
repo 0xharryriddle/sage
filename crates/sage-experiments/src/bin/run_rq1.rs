@@ -27,7 +27,7 @@ struct Rq1Row {
     run_status: String,
     finalized_blocks: u64,
     max_finalized_height: u64,
-    safety_violation: bool,
+    safety_violation: Option<bool>,
     downtime_micros: u64,
     finality_gap: u64,
     cutover_latency_micros: u64,
@@ -81,7 +81,7 @@ fn run_strategy(
                         run_status: "completed".into(),
                         finalized_blocks: metrics.finalized_blocks,
                         max_finalized_height: metrics.max_finalized_height,
-                        safety_violation: metrics.safety_violation,
+                        safety_violation: Some(metrics.safety_violation),
                         downtime_micros: downtime,
                         finality_gap: gap,
                         cutover_latency_micros: metrics.cutover_latency_micros.unwrap_or(0),
@@ -105,7 +105,7 @@ fn run_strategy(
                         run_status: format!("error: {:?}", e),
                         finalized_blocks: 0,
                         max_finalized_height: 0,
-                        safety_violation: false,
+                        safety_violation: None,
                         downtime_micros: 0,
                         finality_gap: cfg.simulation.max_height,
                         cutover_latency_micros: 0,
@@ -114,6 +114,17 @@ fn run_strategy(
             },
             Err(e) => {
                 eprintln!("[{}] seed={} create error={:?}", label, seed, e);
+                rows.push(Rq1Row {
+                    strategy: label.to_string(),
+                    seed,
+                    run_status: format!("create_error: {:?}", e),
+                    finalized_blocks: 0,
+                    max_finalized_height: 0,
+                    safety_violation: None,
+                    downtime_micros: 0,
+                    finality_gap: cfg.simulation.max_height,
+                    cutover_latency_micros: 0,
+                });
             }
         }
     }
@@ -155,6 +166,15 @@ fn main() -> ExperimentResult<()> {
     let out_path = cli.out_dir.join("rq1_migration_cost.csv");
     write_csv(&out_path, &all_rows)?;
     println!("Wrote {} rows to {}", all_rows.len(), out_path.display());
+    let incomplete = all_rows
+        .iter()
+        .filter(|r| r.run_status != "completed" || r.safety_violation.is_none())
+        .count();
+    if incomplete > 0 {
+        return Err(sage_experiments::error::ExperimentError::Simulation(format!(
+            "RQ1 has {incomplete} incomplete trial(s); raw rows were written, statistics were not computed"
+        )));
+    }
 
     // SAGE-vs-baseline statistics on the observed downtime metric.
     // Mann-Whitney U (non-parametric, no normality assumption) with the
@@ -189,7 +209,7 @@ fn main() -> ExperimentResult<()> {
 fn compute_downtime_stats(rows: &[Rq1Row]) -> Vec<Rq1StatRow> {
     let downtime_of = |label: &str| -> Vec<f64> {
         rows.iter()
-            .filter(|r| r.strategy == label)
+            .filter(|r| r.strategy == label && r.run_status == "completed")
             .map(|r| r.downtime_micros as f64)
             .collect()
     };
@@ -246,29 +266,40 @@ fn compute_downtime_stats(rows: &[Rq1Row]) -> Vec<Rq1StatRow> {
 }
 
 fn print_summary(label: &str, rows: &[Rq1Row]) {
-    let finalized: Vec<f64> = rows.iter().map(|r| r.finalized_blocks as f64).collect();
-    let safety_succ = rows.iter().filter(|r| r.safety_violation).count() as u64;
+    let completed: Vec<_> = rows
+        .iter()
+        .filter(|r| r.run_status == "completed" && r.safety_violation.is_some())
+        .collect();
+    let finalized: Vec<f64> = completed
+        .iter()
+        .map(|r| r.finalized_blocks as f64)
+        .collect();
+    let safety_succ = completed
+        .iter()
+        .filter(|r| r.safety_violation == Some(true))
+        .count() as u64;
 
     let ci = mean_ci_bootstrap(&finalized, 0.95, 42, 1000).unwrap_or(Interval {
         lower: 0.0,
         upper: 0.0,
         confidence: 0.0,
     });
-    let safety_rate = if rows.is_empty() {
+    let safety_rate = if completed.is_empty() {
         0.0
     } else {
-        safety_succ as f64 / rows.len() as f64
+        safety_succ as f64 / completed.len() as f64
     };
-    let safety_ci = wilson_interval(safety_succ, rows.len() as u64, 0.95).unwrap_or(Interval {
-        lower: 0.0,
-        upper: 1.0,
-        confidence: 0.0,
-    });
+    let safety_ci =
+        wilson_interval(safety_succ, completed.len() as u64, 0.95).unwrap_or(Interval {
+            lower: 0.0,
+            upper: 1.0,
+            confidence: 0.0,
+        });
 
     println!(
         "[{}] n={} mean_finalized={:.1} [{:.1}, {:.1}] safety_rate={:.3} [{:.3}, {:.3}]",
         label,
-        rows.len(),
+        completed.len(),
         ci.lower + (ci.upper - ci.lower) / 2.0,
         ci.lower,
         ci.upper,

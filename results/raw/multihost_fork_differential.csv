@@ -1,0 +1,11 @@
+arm,trial,n,forked,verdict
+sage,1,6,false,expect_nofork
+sage,2,6,false,expect_nofork
+sage,3,6,false,expect_nofork
+sage,4,6,false,expect_nofork
+sage,5,6,false,expect_nofork
+hardfork,1,6,true,expect_fork
+hardfork,2,6,true,expect_fork
+hardfork,3,6,true,expect_fork
+hardfork,4,6,true,expect_fork
+hardfork,5,6,true,expect_fork

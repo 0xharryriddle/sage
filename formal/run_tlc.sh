@@ -73,6 +73,15 @@ else
   fail=1
 fi
 
+echo "=== BROKEN CONTROL SageRollbackBadCtx (must FIND counterexample) ==="
+out=$($TLC -config "SageRollbackBadCtx.cfg" SageRollback.tla 2>&1)
+if echo "$out" | grep -q "Invariant ReplayContextFailClosed is violated"; then
+  echo "  [OK] SageRollbackBadCtx: bad-replay-context counterexample found (fail-closed gate has teeth)"
+else
+  echo "  [FAIL] SageRollbackBadCtx: expected a ReplayContextFailClosed violation but none was reported"
+  fail=1
+fi
+
 echo ""
 if [ "$fail" -eq 0 ]; then
   echo "ALL TLC CHECKS PASSED: safety holds n in {4,7,10} + rollback holds; both broken controls falsified."

@@ -776,6 +776,8 @@ dependencies = [
  "sage-core",
  "sage-manifest",
  "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
 ]
 

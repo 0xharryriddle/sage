@@ -1,7 +1,8 @@
 //! Storage traits for blocks, certificates, manifests, and state.
 use crate::error::StoreResult;
 use sage_core::{BlockHash, EngineId, Epoch, FinalizedBlock, Height, StateRoot, ValidatorId, View};
-use sage_manifest::{Certificate, MigrationManifest};
+use sage_manifest::{Certificate, CutoverCertificate, MigrationManifest};
+use serde::{Deserialize, Serialize};
 
 /// Store for finalized blocks indexed by height.
 pub trait BlockStore {
@@ -30,7 +31,7 @@ pub trait StateStore {
     fn state_root(&self, height: Height) -> Option<StateRoot>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct VoteRecord {
     pub validator: ValidatorId,
     pub engine_id: EngineId,
@@ -50,7 +51,33 @@ pub trait SafetyStore {
     ) -> Option<&VoteRecord>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MigrationDecisionRecord {
+    pub version: u32,
+    pub required_power: u64,
+    pub cut_cert: CutoverCertificate,
+}
+
+/// Store for the authority decision that must survive a validator restart.
+pub trait MigrationStore {
+    fn put_migration_decision(&mut self, record: MigrationDecisionRecord) -> StoreResult<()>;
+    fn migration_decision(&self) -> Option<&MigrationDecisionRecord>;
+}
+
+/// One authority-visible finalized transition. Implementations publish all fields or none.
+#[derive(Debug, Clone)]
+pub struct CommittedTransition {
+    pub block: FinalizedBlock,
+    pub state_root: StateRoot,
+    pub state: Vec<u8>,
+    pub migration_decision: Option<MigrationDecisionRecord>,
+}
+
+pub trait TransactionalStore {
+    fn commit_transition(&mut self, transition: CommittedTransition) -> StoreResult<()>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum CertificateKind {
     Finality,
     Readiness,

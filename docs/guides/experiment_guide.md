@@ -88,9 +88,11 @@ results/
 | `run_rq3` | Kappa / shadow anchoring ablation | `results/raw/rq3_kappa_ablation.csv` |
 | `run_rq4` | Rollback correctness inputs | `results/raw/rq4_rollback.csv` |
 | `run_safety` | Adversarial partition safety | `results/raw/safety_partition.csv` |
+| `run_overhead` | Baseline PoA vs SAGE dual-run throughput/CPU microbenchmark | `results/raw/dual_run_overhead.csv`, `results/figures/dual_run_overhead_summary.csv`, `results/tables/dual_run_overhead.tex` |
 | `run_termination` | Partition-duration termination | `results/raw/termination.csv` |
 | `run_sensitivity` | Network-delay sensitivity | `results/raw/sensitivity.csv` |
 | `run_manifest_tests` | Manifest negative tests | `results/raw/manifest_tests.csv` |
+| `scripts/netem_wan_testbed.sh` | Privileged `tc netem` WAN-emulated multi-process testbed, with explicit skip metadata when unavailable | `results/raw/wan_cutover.csv`, `results/tables/wan_cutover.tex` |
 | `generate_tables` | CSV to LaTeX tables | `results/tables/*.tex` |
 | `generate_figures` | CSV to figure data | `results/figures/*` |
 
@@ -116,10 +118,20 @@ cargo run -p sage-experiments --bin run_rq2 -- --config config/rq2.toml --seeds 
 cargo run -p sage-experiments --bin run_rq3 -- --config config/rq3.toml --kappa 1,2,4,8
 cargo run -p sage-experiments --bin run_rq4 -- --config config/rq4.toml --seeds 0,1,2
 cargo run -p sage-experiments --bin run_safety -- --config config/safety.toml --trials 30
+cargo run -p sage-experiments --bin run_overhead -- --config config/rq1.toml --txs-per-block 10,25,50,100 --seeds 0,1,2
 cargo run -p sage-experiments --bin run_termination -- --config config/rq2.toml --durations 2,4,8 --trials 5
 cargo run -p sage-experiments --bin run_sensitivity -- --config config/rq1.toml --delays 40000,80000 --trials 5
 cargo run -p sage-experiments --bin run_manifest_tests -- --out-dir results/raw
 ```
+
+WAN-emulated local testbed:
+
+```bash
+make wan-netem                         # records explicit skip metadata unless RUN_NETEM=1
+sudo RUN_NETEM=1 make wan-netem        # applies tc netem to loopback; cleanup runs on exit
+```
+
+The netem profiles are representative engineering buckets, not provider-specific measurements: `metro` uses 10 ms one-way delay / 2 ms jitter / 0% loss, `continental` uses 50 ms / 10 ms / 0.1%, `intercontinental` uses 120 ms / 25 ms / 0.5%, and `adverse` uses 200 ms / 50 ms / 1% as a robustness stress profile.
 
 Regenerate tables and figures after raw CSVs exist:
 
@@ -136,6 +148,7 @@ cargo run -p sage-experiments --bin generate_figures -- --raw-dir results/raw --
 | RQ2 | Partition safety and fork behavior | `run_rq2`, `run_safety` |
 | RQ3 | Contribution of shadow anchoring / kappa | `run_rq3` |
 | RQ4 | Rollback correctness and scaling inputs | `run_rq4` |
+| E5 | Dual-run shadow-validation overhead versus baseline PoA | `run_overhead` |
 | E6 | Termination under partition duration | `run_termination` |
 | E7 | Sensitivity to network delay | `run_sensitivity` |
 | Manifest checks | Rejection of invalid/stale/replayed manifests | `run_manifest_tests` |
@@ -158,6 +171,8 @@ Common metrics include:
   i.e. a fork was *structurally possible*. This is an EXPOSURE measure and is
   never treated as a safety violation; `safety_violation` only fires on a
   genuinely observed conflicting commit.
+- `committed_tps_wall`, `cpu_total_pct`, and `rss_mb_end` (`run_overhead`): local simulator wall-clock throughput and process resource use for matched baseline PoA and SAGE dual-run workloads. These are microbenchmark measurements, not WAN deployment capacity claims.
+- `shadow_validation_count_model` (`run_overhead`): expected shadow validations over the dual-run interval, derived from validator count and finalized dual-run heights.
 - strategy label and seed
 - run status (`completed`, `error:*`, or experiment-specific status)
 - confidence intervals from `sage-stats` where applicable
@@ -228,7 +243,7 @@ Before submitting or circulating the paper:
 1. Run `make all` from a clean checkout.
 2. Confirm all raw CSVs and metadata files are regenerated.
 3. Run table/figure generation.
-4. Update `docs/paper.tex` from generated outputs only.
+4. Update `docs/paper/paper.tex` from generated outputs only; keep `docs/paper.tex` as the compatibility entrypoint.
 5. Ensure every claim in the paper matches the artifact claim boundary above.
 6. Clearly separate simulator evidence from local-runtime and future production
    claims.

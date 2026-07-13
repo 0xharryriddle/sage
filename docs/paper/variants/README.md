@@ -9,7 +9,7 @@ This directory preserves non-canonical paper sources and backups used during the
 
 ## Canonical Source
 
-The canonical build entrypoint remains `docs/paper.tex` for compatibility. A structured copy also exists at `docs/paper/paper.tex`, but it should not be edited independently until the project decides to make `docs/paper/paper.tex` canonical and convert `docs/paper.tex` into a wrapper.
+The canonical full source is `docs/paper/paper.tex`. The root `docs/paper.tex` file is only a lightweight compatibility entrypoint that inputs the canonical source, so edits should be made in `docs/paper/paper.tex`.
 
 ## Policy
 

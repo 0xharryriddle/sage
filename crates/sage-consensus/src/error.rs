@@ -27,4 +27,7 @@ pub enum ConsensusError {
 
     #[error("block {block_hash} is not known")]
     UnknownBlock { block_hash: BlockHash },
+
+    #[error("invalid certificate: {reason}")]
+    InvalidCertificate { reason: String },
 }

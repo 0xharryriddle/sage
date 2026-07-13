@@ -1,0 +1,4 @@
+fault,arm,expected,n,runs,forked_runs,observed,pass
+partition_at_cutover,faithful_sage,nofork,6,5,0,nofork,PASS
+partition_at_cutover,broken_hardfork,fork,6,5,5,fork,PASS
+byzantine_equivocation,faithful_sage,nofork,6,5,0,nofork,PASS

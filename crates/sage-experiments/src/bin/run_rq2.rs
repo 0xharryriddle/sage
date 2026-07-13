@@ -17,7 +17,7 @@ struct Rq2Row {
     partition_split: u32,
     partition_duration_blocks: u64,
     finalized_blocks: u64,
-    safety_violation: bool,
+    safety_violation: Option<bool>,
     migration_success: bool,
     max_finalized_height: u64,
     run_status: String,
@@ -63,7 +63,7 @@ fn run_partition_config(
                 Ok(metrics) => {
                     status = "ok".to_string();
                     finalized_blocks = metrics.finalized_blocks;
-                    safety_violation = metrics.safety_violation;
+                    safety_violation = Some(metrics.safety_violation);
                     migration_success = metrics.migration_success;
                     max_finalized_height = metrics.max_finalized_height;
                     disjoint_quorum_windows = metrics.disjoint_quorum_windows;
@@ -85,7 +85,7 @@ fn run_partition_config(
                 Err(e) => {
                     status = format!("error:{}", e);
                     finalized_blocks = 0;
-                    safety_violation = false;
+                    safety_violation = None;
                     migration_success = false;
                     max_finalized_height = 0;
                     disjoint_quorum_windows = 0;
@@ -94,7 +94,7 @@ fn run_partition_config(
             Err(e) => {
                 status = format!("create_error:{}", e);
                 finalized_blocks = 0;
-                safety_violation = false;
+                safety_violation = None;
                 migration_success = false;
                 max_finalized_height = 0;
                 disjoint_quorum_windows = 0;
@@ -166,8 +166,15 @@ fn main() -> ExperimentResult<()> {
                     &cli.config,
                     &config_toml,
                 );
-                let safety_count = rows.iter().filter(|r| r.safety_violation).count();
-                let total = rows.len() as u64;
+                let completed: Vec<_> = rows
+                    .iter()
+                    .filter(|r| r.run_status == "ok" && r.safety_violation.is_some())
+                    .collect();
+                let safety_count = completed
+                    .iter()
+                    .filter(|r| r.safety_violation == Some(true))
+                    .count();
+                let total = completed.len() as u64;
                 let ci = wilson_interval(safety_count as u64, total, 0.95).unwrap_or(Interval {
                     lower: 0.0,
                     upper: 1.0,
@@ -196,5 +203,14 @@ fn main() -> ExperimentResult<()> {
     let out_path = cli.out_dir.join("rq2_partition_safety.csv");
     write_csv(&out_path, &all_rows)?;
     println!("Wrote {} rows to {}", all_rows.len(), out_path.display());
+    let incomplete = all_rows
+        .iter()
+        .filter(|r| r.run_status != "ok" || r.safety_violation.is_none())
+        .count();
+    if incomplete > 0 {
+        return Err(sage_experiments::error::ExperimentError::Simulation(format!(
+            "RQ2 has {incomplete} incomplete trial(s); raw rows were written and cannot be interpreted as no-fork verdicts"
+        )));
+    }
     Ok(())
 }

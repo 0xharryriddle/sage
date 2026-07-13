@@ -10,3 +10,7 @@ sage-core = { path = "../sage-core" }
 sage-manifest = { path = "../sage-manifest" }
 thiserror.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

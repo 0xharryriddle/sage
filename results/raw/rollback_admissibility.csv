@@ -1,0 +1,5 @@
+experiment,workload_class,trials,clean_replays,fail_closed,silent_misreplay,expected,passed
+rollback_admissibility,metadata_independent,20,20,0,0,clean,true
+rollback_admissibility,metadata_uncaptured,20,0,20,0,fail_closed,true
+rollback_admissibility,metadata_captured,20,20,0,0,clean,true
+rollback_admissibility,tampered_context,20,0,20,0,fail_closed,true

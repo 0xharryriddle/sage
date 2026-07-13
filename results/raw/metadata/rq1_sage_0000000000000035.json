@@ -1,0 +1,25 @@
+{
+  "artifact_version": "0.1.0",
+  "cargo_version": "cargo 1.93.1 (083ac5135 2025-12-15)",
+  "config_hash": "e5d0f288f741afc933227f9efda44fabda52835f1b8d2b8f6b0db373f0115a34",
+  "config_hash_alg": "sha256",
+  "config_path": "config/rq1.toml",
+  "experiment": "rq1_sage",
+  "metrics": {
+    "cutover_finalize_micros": 2922,
+    "cutover_height": 30,
+    "cutover_latency_micros": 110,
+    "disjoint_quorum_windows": 0,
+    "downtime_events": 0,
+    "finalized_blocks": 800,
+    "max_finalization_gap_micros": 129,
+    "max_finalized_height": 40,
+    "migration_success": true,
+    "protocol_swap_success": true,
+    "safety_violation": false
+  },
+  "run_status": "completed",
+  "rustc_version": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+  "seed": 53,
+  "timestamp_unix": 1782027230
+}

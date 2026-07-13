@@ -1,0 +1,7 @@
+strategy,n,f,validator,migration_success,max_finalized_height,cutover_height,observed_fork,run_max_height,total_duration_secs,messages_sent,total_messages,replay_context_root,replay_context_root_agreement,replay_context_ok,manifest_payload_hash,manifest_payload_hash_agreement,manifest_payload_ok,total_txs,committed_tps,inter_commit_p50_micros,inter_commit_p95_micros,inter_commit_p99_micros,inter_commit_max_micros,cutover_gap_micros
+coxfaithful,6,1,0,false,4,4,true,4,12.004150,23,187,92774a72a49a162df8dee30fb022c5b0949ec1185bec5bca1c1823ef4eeaa596,true,false,1895525e88584148b43539593cafb03d1ec6e72b658d7df52ea3fed67daf978a,false,false,4,0.333,20619,30489,30489,30489,30489
+coxfaithful,6,1,1,false,3,4,true,4,12.007138,26,187,,true,false,,false,false,3,0.250,20479,20479,20479,20479,0
+coxfaithful,6,1,2,false,3,4,true,4,12.007646,26,187,,true,false,,false,false,3,0.250,20434,20434,20434,20434,0
+coxfaithful,6,1,3,false,4,4,true,4,12.006749,42,187,92774a72a49a162df8dee30fb022c5b0949ec1185bec5bca1c1823ef4eeaa596,true,false,2b01b954babcfb20e01047f6f8ae5d99efb0006a5a8d7df31c195ee054762df3,false,false,4,0.333,20623,1503285,1503285,1503285,1503285
+coxfaithful,6,1,4,false,3,4,true,4,12.008655,35,187,,true,false,,false,false,3,0.250,20544,20544,20544,20544,0
+coxfaithful,6,1,5,false,3,4,true,4,12.006701,35,187,,true,false,,false,false,3,0.250,20430,20430,20430,20430,0

@@ -37,6 +37,16 @@ fn main() {
     let h_c = opt_u64(&opts, "h-c", 4);
     let h_r = opt_u64(&opts, "h-r", 8);
     let max_secs = opt_u64(&opts, "max-secs", 20);
+    // Synthetic throughput workload forwarded to every child (0 = empty blocks,
+    // preserving the fork/partition experiments' behavior).
+    let workload_txs = opt_u64(&opts, "workload-txs", 0);
+    // Optional WAN impairment (no-sudo, software netem-style) forwarded to every
+    // child's transport: per-send loss + randomized delay/jitter. Used to model
+    // cross-region latency on a single box (NOT a real geo-distributed
+    // deployment). 0/absent preserves the near-zero-latency loopback behavior.
+    let delay_ms = opt_u64(&opts, "delay-ms", 0);
+    let jitter_ms = opt_u64(&opts, "jitter-ms", 0);
+    let loss_pct = opts.get("loss-pct").cloned();
     let strategy = opts
         .get("strategy")
         .cloned()
@@ -141,7 +151,22 @@ fn main() {
             ms_s,
             "--strategy".into(),
             strategy.clone(),
+            "--workload-txs".into(),
+            workload_txs.to_string(),
         ];
+        // Forward WAN impairment to every child, if set (no-sudo software model).
+        if delay_ms > 0 {
+            args.push("--delay-ms".into());
+            args.push(delay_ms.to_string());
+        }
+        if jitter_ms > 0 {
+            args.push("--jitter-ms".into());
+            args.push(jitter_ms.to_string());
+        }
+        if let Some(loss) = &loss_pct {
+            args.push("--loss-pct".into());
+            args.push(loss.clone());
+        }
         // Assign this validator its partition side, if any.
         if let Some((a, b)) = &side_keep {
             let keep = if id < partition_a.unwrap() { a } else { b };
@@ -318,16 +343,44 @@ fn main() {
     // O(n^2) plot fits against. Reported in the CSV and summary line.
     let total_messages: u64 = results.iter().map(|r| r.messages_sent).sum();
 
+    let quorum_threshold = u64::from(n).saturating_sub(f) as usize;
+    let replay_counts =
+        count_optional_strings(results.iter().map(|r| r.replay_context_root.as_deref()));
+    let replay_roots: BTreeSet<String> = replay_counts.keys().cloned().collect();
+    let replay_context_root_agreement = replay_roots.len() <= 1;
+    let replay_context_ok = replay_counts.values().copied().max().unwrap_or(0) >= quorum_threshold;
+    if replay_roots.is_empty() {
+        eprintln!("[orchestrator] replay context root missing from all validators");
+    } else if !replay_context_root_agreement {
+        eprintln!(
+            "[orchestrator] replay context root disagreement across validators: {replay_counts:?}; quorum_ok={replay_context_ok}"
+        );
+    }
+
+    let manifest_counts =
+        count_optional_strings(results.iter().map(|r| r.manifest_payload_hash.as_deref()));
+    let manifest_hashes: BTreeSet<String> = manifest_counts.keys().cloned().collect();
+    let manifest_payload_hash_agreement = manifest_hashes.len() <= 1;
+    let manifest_payload_ok =
+        manifest_counts.values().copied().max().unwrap_or(0) >= quorum_threshold;
+    if manifest_hashes.is_empty() {
+        eprintln!("[orchestrator] manifest payload hash missing from all validators");
+    } else if !manifest_payload_hash_agreement {
+        eprintln!(
+            "[orchestrator] manifest payload hash disagreement across validators: {manifest_counts:?}; quorum_ok={manifest_payload_ok}"
+        );
+    }
+
     // Threshold CutCert verification: re-derive each validator's verifying key
     // from its id+seed, verify its ed25519 signature over the agreed cutover
-    // payload hash, and count distinct valid signers. A genuine 2f+1 quorum of
+    // payload hash, and count distinct valid signers. A genuine n-f quorum of
     // valid signatures is the cryptographic witness that the migration was
     // sealed by a real quorum, not a flag flip.
     let cutcert_signers = verify_cutcert(&results, f);
-    let cutcert_threshold = 2 * f + 1;
+    let cutcert_threshold = cutcert_threshold(n, f);
     let cutcert_ok = cutcert_signers >= cutcert_threshold;
     eprintln!(
-        "[orchestrator] CutCert: {cutcert_signers} valid distinct signatures (threshold 2f+1={cutcert_threshold}) -> {}",
+        "[orchestrator] CutCert: {cutcert_signers} valid distinct signatures (threshold n-f={cutcert_threshold}) -> {}",
         if cutcert_ok { "VERIFIED" } else { "below threshold" }
     );
 
@@ -341,6 +394,10 @@ fn main() {
         observed_fork,
         max_h,
         total_messages,
+        replay_context_root_agreement,
+        replay_context_ok,
+        manifest_payload_hash_agreement,
+        manifest_payload_ok,
     ) {
         eprintln!("[orchestrator] failed to write {out}: {e}");
         std::process::exit(1);
@@ -351,9 +408,23 @@ fn main() {
         results.len()
     );
     println!(
-        "{{\"strategy\":\"{strategy}\",\"n\":{n},\"f\":{f},\"results\":{},\"migration_success\":{success_count},\"max_finalized_height\":{max_h},\"observed_fork\":{observed_fork},\"cutcert_signers\":{cutcert_signers},\"cutcert_threshold\":{cutcert_threshold},\"cutcert_ok\":{cutcert_ok},\"total_messages\":{total_messages}}}",
+        "{{\"strategy\":\"{strategy}\",\"n\":{n},\"f\":{f},\"results\":{},\"migration_success\":{success_count},\"max_finalized_height\":{max_h},\"observed_fork\":{observed_fork},\"cutcert_signers\":{cutcert_signers},\"cutcert_threshold\":{cutcert_threshold},\"cutcert_ok\":{cutcert_ok},\"total_messages\":{total_messages},\"replay_context_root_agreement\":{replay_context_root_agreement},\"replay_context_ok\":{replay_context_ok},\"manifest_payload_hash_agreement\":{manifest_payload_hash_agreement},\"manifest_payload_ok\":{manifest_payload_ok}}}",
         results.len()
     );
+}
+
+fn cutcert_threshold(n: u32, f: u64) -> u64 {
+    u64::from(n).saturating_sub(f)
+}
+
+fn count_optional_strings<'a>(
+    values: impl Iterator<Item = Option<&'a str>>,
+) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for value in values.flatten() {
+        *counts.entry(value.to_owned()).or_insert(0) += 1;
+    }
+    counts
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -366,6 +437,10 @@ fn write_csv(
     observed_fork: bool,
     max_h: u64,
     total_messages: u64,
+    replay_context_root_agreement: bool,
+    replay_context_ok: bool,
+    manifest_payload_hash_agreement: bool,
+    manifest_payload_ok: bool,
 ) -> std::io::Result<()> {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
@@ -374,10 +449,10 @@ fn write_csv(
         }
     }
     let mut s = String::new();
-    s.push_str("strategy,n,f,validator,migration_success,max_finalized_height,cutover_height,observed_fork,run_max_height,total_duration_secs,messages_sent,total_messages\n");
+    s.push_str("strategy,n,f,validator,migration_success,max_finalized_height,cutover_height,observed_fork,run_max_height,total_duration_secs,messages_sent,total_messages,replay_context_root,replay_context_root_agreement,replay_context_ok,manifest_payload_hash,manifest_payload_hash_agreement,manifest_payload_ok,total_txs,committed_tps,inter_commit_p50_micros,inter_commit_p95_micros,inter_commit_p99_micros,inter_commit_max_micros,cutover_gap_micros\n");
     for r in results {
         s.push_str(&format!(
-            "{},{},{},{},{},{},{},{},{},{:.6},{},{}\n",
+            "{},{},{},{},{},{},{},{},{},{:.6},{},{},{},{},{},{},{},{},{},{:.3},{},{},{},{},{}\n",
             strategy,
             n,
             f,
@@ -390,6 +465,19 @@ fn write_csv(
             r.total_duration_secs,
             r.messages_sent,
             total_messages,
+            r.replay_context_root.as_deref().unwrap_or_default(),
+            replay_context_root_agreement,
+            replay_context_ok,
+            r.manifest_payload_hash.as_deref().unwrap_or_default(),
+            manifest_payload_hash_agreement,
+            manifest_payload_ok,
+            r.total_txs,
+            r.committed_tps,
+            r.inter_commit_p50_micros,
+            r.inter_commit_p95_micros,
+            r.inter_commit_p99_micros,
+            r.inter_commit_max_micros,
+            r.cutover_gap_micros,
         ));
     }
     std::fs::write(path, s)
@@ -535,4 +623,15 @@ fn print_help() {
          \x20 --equivocate-at H     height the Byzantine validator equivocates at (default h_c)\n\
          \x20 --out results/raw/testbed.csv   output CSV path\n"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cutcert_threshold;
+
+    #[test]
+    fn cutcert_requires_n_minus_f_signers() {
+        assert_eq!(cutcert_threshold(6, 1), 5);
+        assert_eq!(cutcert_threshold(20, 6), 14);
+    }
 }

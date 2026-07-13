@@ -194,6 +194,10 @@ impl SimValidator {
             // directly (one global proposer per height), so it does not exchange
             // SAGE cutover-attestation messages; ignore them here.
             ConsensusMessage::Sage(_) => Ok(Vec::new()),
+            // This simulator instantiates PoA as the legacy engine; Raft is a
+            // conforming alternative legacy engine covered by its own tests, and
+            // does not flow through this PoA->HotStuff simulation path.
+            ConsensusMessage::Raft(_) => Ok(Vec::new()),
         }
     }
 

@@ -1,0 +1,27 @@
+########## SAGE arm (n-f gate; expect NO fork) ##########
+[sage trial 1] forked=false (expect nofork)
+[sage trial 2] forked=false (expect nofork)
+[sage trial 3] forked=false (expect nofork)
+[sage trial 4] forked=false (expect nofork)
+[sage trial 5] forked=false (expect nofork)
+=> sage: 0/5 trials forked (expected: nofork)
+########## HARDFORK arm (no gate; expect fork) ##########
+[hardfork trial 1] forked=true (expect fork)
+[hardfork trial 2] forked=true (expect fork)
+[hardfork trial 3] forked=true (expect fork)
+[hardfork trial 4] forked=true (expect fork)
+[hardfork trial 5] forked=true (expect fork)
+=> hardfork: 5/5 trials forked (expected: fork)
+
+=== SUMMARY (results/raw/multihost_fork_differential.csv) ===
+arm       trial  n  forked  side_a_h4_roots  side_b_h4_roots  verdict
+sage      1      6  false   -                -                expect_nofork
+sage      2      6  false   -                -                expect_nofork
+sage      3      6  false   -                -                expect_nofork
+sage      4      6  false   -                -                expect_nofork
+sage      5      6  false   -                -                expect_nofork
+hardfork  1      6  true    -                -                expect_fork
+hardfork  2      6  true    -                -                expect_fork
+hardfork  3      6  true    -                -                expect_fork
+hardfork  4      6  true    -                -                expect_fork
+hardfork  5      6  true    -                -                expect_fork

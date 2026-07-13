@@ -34,6 +34,16 @@
 /docs/paper_artifact_alignment_review.md
 /reviews/**
 
+# Real multi-host benchmark target list (contains real IPs/ssh targets).
+# The tracked template is config/hosts.txt.example.
+/config/hosts.txt
+/config/hosts_n12.txt
+/config/hosts_*.txt
+
+# SSH private/public keys for the benchmark VMs — MUST NEVER be committed.
+/config/secret/
+/config/secret/**
+
 # Local tool scratch files
 /.codex/
 /.claude/
@@ -42,4 +52,15 @@
 /.mcp_agentmemory/
 /.graphify/
 /graphify/
+# graphify transient cache / interpreter helpers (NOT the committed graph outputs).
+# graphify-out/ (GRAPH_REPORT.md, graph.json, graph.html) IS tracked as shared state.
+/.graphify_*
+/graphify-out/cache/
+/graphify-out/.graphify_python
+/graphify-out/.needs_update
 /**/.DS_Store
+
+# TLC raw state dumps (large, regenerable); keep only the tiny committed/ projections
+formal/states/*.txt
+formal/states/*.dump
+formal/*.dump

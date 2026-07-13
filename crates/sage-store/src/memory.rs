@@ -2,7 +2,8 @@
 //! Used for tests, simulator integration, and local runtime.
 use crate::error::{StoreError, StoreResult};
 use crate::traits::{
-    BlockStore, CertificateKind, CertificateStore, ManifestStore, SafetyStore, StateStore,
+    BlockStore, CertificateKind, CertificateStore, CommittedTransition, ManifestStore,
+    MigrationDecisionRecord, MigrationStore, SafetyStore, StateStore, TransactionalStore,
     VoteRecord,
 };
 use sage_core::{EngineId, Epoch, FinalizedBlock, Height, StateRoot, ValidatorId, View};
@@ -18,6 +19,7 @@ pub struct MemoryBackend {
     manifests: BTreeMap<Epoch, MigrationManifest>,
     states: BTreeMap<Height, StateSnapshot>,
     votes: BTreeMap<(ValidatorId, EngineId, View), VoteRecord>,
+    migration_decision: Option<MigrationDecisionRecord>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +39,7 @@ impl MemoryBackend {
         self.manifests.clear();
         self.states.clear();
         self.votes.clear();
+        self.migration_decision = None;
     }
 }
 
@@ -125,6 +128,48 @@ impl SafetyStore for MemoryBackend {
         view: View,
     ) -> Option<&VoteRecord> {
         self.votes.get(&(validator, engine_id, view))
+    }
+}
+
+impl MigrationStore for MemoryBackend {
+    fn put_migration_decision(&mut self, record: MigrationDecisionRecord) -> StoreResult<()> {
+        if let Some(existing) = &self.migration_decision {
+            if existing != &record {
+                return Err(StoreError::ConflictingMigrationDecision);
+            }
+            return Ok(());
+        }
+        self.migration_decision = Some(record);
+        Ok(())
+    }
+
+    fn migration_decision(&self) -> Option<&MigrationDecisionRecord> {
+        self.migration_decision.as_ref()
+    }
+}
+
+impl TransactionalStore for MemoryBackend {
+    fn commit_transition(&mut self, transition: CommittedTransition) -> StoreResult<()> {
+        let height = transition.block.block.header.height;
+        if transition.block.block.header.state_root != transition.state_root {
+            return Err(StoreError::General(
+                "transition state root does not match block header".into(),
+            ));
+        }
+        let mut next = self.clone();
+        next.blocks.insert(height, transition.block);
+        next.states.insert(
+            height,
+            StateSnapshot {
+                root: transition.state_root,
+                data: transition.state,
+            },
+        );
+        if let Some(decision) = transition.migration_decision {
+            next.put_migration_decision(decision)?;
+        }
+        *self = next;
+        Ok(())
     }
 }
 
