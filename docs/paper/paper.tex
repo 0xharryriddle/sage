@@ -17,9 +17,12 @@
 \pgfplotsset{compat=1.18}
 \usepgfplotslibrary{groupplots}
 \usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,backgrounds,automata,decorations.pathreplacing}
-\usepackage{subcaption}
 \usepackage[hidelinks]{hyperref}
 \usepackage{url}
+
+% IEEE Times does not provide italic small caps; state identifiers remain upright small caps.
+\DeclareFontShape{OT1}{ptm}{m}{scit}{<->ssub * ptm/m/sc}{}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 
 % ---- float placement tuning (two-column) ----
 \renewcommand{\topfraction}{0.95}
@@ -46,17 +49,18 @@
 % ---- theorem environments ----
 \newtheorem{theorem}{Theorem}
 \newtheorem{lemma}{Lemma}
-\newtheorem{definition}{Definition}
-\newtheorem{assumption}{Assumption}
 \newtheorem{corollary}{Corollary}
 \newtheorem{proposition}{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{assumption}{Assumption}
 \newtheorem{observation}{Observation}
 \theoremstyle{remark}
 \newtheorem{remark}{Remark}
 
 \begin{document}
 
-\title{SAGE: No-Scheduled-Halt Migration Between Heterogeneous Consensus Engines\\for Permissioned Blockchains}
+\title{SAGE: Quorum-Certified Migration Between Heterogeneous Consensus Engines\\for Permissioned Blockchains}
 
 \author{Anonymous~Authors}
 % \author{Tuan-Dung~Tran and Nguyen~Thai~Cong
@@ -69,464 +73,161 @@
 \maketitle
 
 \begin{abstract}
-Permissioned and sovereign blockchains are routinely launched on a simple
-Proof-of-Authority runtime and later need a high-throughput Byzantine fault tolerant
-engine such as pipelined HotStuff. Replacing the consensus engine of a chain that is
-already serving clients is a dependability problem rather than a module swap, because
-state continuity, client interface stability, safety across the transition boundary, and
-a safe abort path must all hold at once. Deployed systems already perform live
-transitions, the Ethereum Merge ran a parallel beacon chain before a terminal-difficulty
-cutover, and Polkadot, Cosmos, and Tezos perform on-chain upgrades, yet none of these
-provides a formally proven, verifiable, and reversible transition between two structurally
-different consensus engines---engines whose \emph{quorum family itself changes} at the boundary,
-so the predicate that decides finality is not shared across the switch. We show this is the
-condition under which a mechanism safe in the homogeneous case can still fork, and that an $n{-}f$ dual-run cutover threshold conservatively closes that gap. This paper presents SAGE, a migration protocol that keeps a
-single finalizer during a bounded dual-run interval, gates cutover on a quorum-certified
-decision over a stability predicate, binds the transition with an $n{-}f$ multi-signature
-migration manifest, and supports a deadline-bounded rollback. We prove uniqueness of the
-cutover decision through quorum intersection, cross-boundary safety as an inductive
-invariant, and---under post-GST partial synchrony---a no-scheduled-stop property for successful handoffs. Rollback safety is
-unconditional with respect to application metadata: the chain returns to the unique
-absolutely-final legacy state or fails closed on a root mismatch; automatic transaction
-replay is the conditional convenience layer and requires metadata-independent execution
-or an explicitly captured replay context. We further prove migration termination,
-manifest unforgeability, and replay resistance as cryptographic reductions. Under a cutover-straddling partition that denies the cutover quorum, SAGE fails closed by withholding migration; the current prototype may also stall chain progress, so uninterrupted service is claimed only for successful no-partition handoffs. We evaluate SAGE along three complementary evidence tiers: a deterministic event-driven
-simulator, a multi-process testbed of validators running as separate operating-system
-processes over TCP (both single-machine loopback and six independent cloud hosts), and a
-bounded TLA+/TLC model check. The simulator
-completes 60 no-partition migration seeds for each baseline and records mean SAGE
-cutover-evidence latency of 105.6 microseconds in simulator time. Because the serialized
-simulator cannot realize a concurrent two-leader conflict, we make the multi-process
-testbed the safety headline: under an identical balanced partition at the cutover height,
-the blind hard-fork control and a Cox-inspired live-switch baseline fork in every run, while
-quorum-gated SAGE forks in none. Thus the fork SAGE prevents is exhibited as a measured
-event rather than a structural impossibility, and the Cox-inspired baseline ties SAGE on migration
-cost but separates on adversarial boundary safety. We further reproduce both the migration and the
-fork differential on six independent cloud hosts over real TCP ($0/5$ forks for quorum-gated SAGE
-versus $5/5$ for the blind control), and it persists under an injected $\approx 104$\,ms inter-VM
-round-trip time ($0/3$ vs $3/3$), confirming the result is not an artifact of co-located processes
-or near-zero same-region latency. Every strategy is compared inside one controlled simulation
-environment under a byte-identical configuration---the only variable across arms is the migration
-strategy itself---so the comparison is fair by construction; a SAGE robustness sweep additionally
-exercises the safety invariant to $n{=}100$.
-A bounded model check exhaustively verifies cross-boundary safety, cutover-decision
-uniqueness, and no-absolute-reversion over $n\in\{4,7,10\}$ and all partition splits, with
-falsifying broken controls the checker must catch. The local runtime additionally exercises
-SAGE cutover, post-cutover HotStuff finalization, store-backed double-vote rejection, and
-restart/continue recovery from in-memory snapshots.
+Migrating a live permissioned blockchain from Proof-of-Authority to HotStuff BFT risks ledger
+divergence because their finalization rules differ. SAGE avoids a scheduled halt by retaining legacy
+authority until an $n-f$ quorum certifies the boundary for authority transfer. A quorum-certified
+manifest binds boundary, epoch, engines, and replay context under a durable one-body-per-epoch lock;
+rollback requires its matching certificate before the manifest-bound deadline. Committee-wide fence
+deployment and terminal-certificate dissemination are specified but remain unimplemented in this
+research prototype. Evaluation used bounded TLC, a loopback TCP testbed, and six hosts in one cloud
+region and availability domain. For $n\in\{4,7,10\}$ TLC found no counterexample to cross-boundary
+decision uniqueness, complete-manifest agreement, or certificate-gated terminal transitions, and
+falsified every paired broken control. Under a balanced partition at cutover SAGE's gate
+stayed closed with migration success $0$: gate-closure evidence, not migration liveness. The same
+schedule forked an unsafe $q=2f{+}1$ control in $20/20$ trials, while $q=n-f$ and the safe interval's
+minimum each recorded $0/20$, consistent with the algebraic result that $n-f$ is conservative rather
+than uniquely safe. Crash-restart passed four of five seeds, then five of five in
+a follow-up campaign, with one open pacemaker fault. Physical geo-WAN behavior is not established,
+and no cited comparator or external-client benchmark was executed.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Consensus migration, Byzantine fault tolerance, HotStuff, Proof-of-Authority, permissioned
-blockchain, live upgrade, state machine replication, quorum intersection, bounded
-rollback, multi-signature certificates.
+Consensus migration, Byzantine fault tolerance, permissioned blockchain, live upgrade,
+state machine replication, quorum intersection, bounded rollback, multi-signature certificates.
 \end{IEEEkeywords}
 
 % ===================== INTRODUCTION =====================
 \section{Introduction}
-\IEEEPARstart{N}{ational} and enterprise digital infrastructure increasingly relies on
-permissioned blockchains that preserve a familiar execution model while satisfying
-accountability, regulated access, and domestic integration constraints. A recurring
-deployment pattern in this setting is staged. A network launches on a simple
-Proof-of-Authority (PoA) runtime that is easy to operate and to audit, and only later,
-once adoption and validator diversity grow, does it require a high-throughput Byzantine
-fault tolerant (BFT) engine with deterministic sub-second finality. Sovereign deployments
-make this pattern explicit because operators control the validator set and the upgrade
-calendar, yet they cannot tolerate service interruption, client breakage, or any
-ambiguity about which ledger state is canonical during an upgrade. The consensus engine is
-therefore not a static design choice but a component that must itself be replaceable on a
-running system, and the replacement must be safe, live, auditable, and reversible.
+\IEEEPARstart{P}{ermissioned} blockchains often begin with a simple authority-based consensus
+engine and later require stronger Byzantine fault tolerance, higher throughput, or a different
+finality mechanism. Replacing the engine after the chain is operational is not an ordinary
+software upgrade. The old and new engines may use different quorum families and different rules
+for deciding when a block is irreversible. If validators switch independently, a network
+partition can leave both engines finalizing incompatible histories.
 
-Modern BFT research has produced engines that are attractive migration targets.
-Leader-based pipelined protocols such as HotStuff achieve linear communication and
-responsiveness~\cite{hotstuff}, and directed acyclic graph designs such as Narwhal and
-Tusk~\cite{narwhal}, Bullshark~\cite{bullshark}, Shoal~\cite{shoal},
-Autobahn~\cite{autobahn}, and Mysticeti~\cite{mysticeti} raise throughput and lower
-latency. Deployed systems have also performed live consensus transitions at scale. The
-Ethereum Merge replaced Nakamoto proof of work with the Gasper proof-of-stake
-protocol~\cite{gasper,casperffg} by running a parallel beacon chain for an extended period
-and then cutting over at a terminal total difficulty. Polkadot performs forkless runtime
-upgrades and finalizes with GRANDPA~\cite{grandpa}, the Cosmos software stack coordinates
-in-protocol upgrades at a governed height, and Tezos amends its own protocol on chain,
-including a change of its consensus algorithm to Tenderbake~\cite{tenderbake}. These
-mechanisms demonstrate that live transitions are feasible and valuable, but each is a
-mechanism-specific engineering artifact: none offers a general construction that takes a
-chain from one consensus engine to a structurally different one with an explicit
-cross-boundary safety argument and a verifiable way to undo the transition if it
-goes wrong.
+Constructed controls in Section~\ref{sec:eval} demonstrate that independent switching can leave
+both engines finalizing incompatible histories. Stop-the-world migration preserves a clear boundary
+but interrupts the model by an assigned pause; the reported $8$\,ms value is a simulator input, not
+measured client downtime. Membership reconfiguration and deployed transitions address related but
+not identical settings~\cite{reconfig,bftsmart,ethereummerge,eip3675,gasper,grandpa,tendermint,tenderbake}.
+We do not infer a general capability gap without a direct mechanism-level comparison to
+Abstract/BFTBrain, Cox, and deployed transition protocols. Adaptive systems choose or switch
+protocols under their own state-transfer and epoch models~\cite{abstract,bftbrain,adachain,adaptbft,threatadapt,adacon}.
+SAGE's candidate residual distinction is a separately $n-f$-certified boundary root plus explicit
+provisional finality and rollback; this distinction still requires direct comparison with
+BFTBrain/Abstract and Cox.
 
-The specific open problem is a safe, live, and reversible transition between two
-heterogeneous consensus engines on a running permissioned chain. A stop-the-world
-migration halts the chain, snapshots state, and restarts under the new engine, which
-produces measurable downtime and a finality gap. A flag-day hard fork coordinates a height
-at which validators switch, which avoids a snapshot but risks a chain split if any
-validator or network partition disagrees about the switch~\cite{tendermint,bitcoin}. Live
-reconfiguration as formalized for state machine replication~\cite{reconfig,bftsmart} and
-recently extended to a consensusless blockchain~\cite{suilutris} changes the validator set
-safely but keeps a single fixed protocol, so it cannot by itself carry a chain from PoA to
-a BFT engine, because the finalization rule itself changes. The Merge-style parallel run is
-the closest deployed analogue, yet it provides neither a formal cross-boundary safety
-theorem nor a bounded, verifiable rollback object, and it is specific to one protocol pair.
-The gap, therefore, is not whether a live transition is possible, but whether it can be
-made general, provably safe at the boundary, and verifiably reversible. A parallel and active
-line of work makes protocol selection an autonomous runtime decision: learned and threat-adaptive
-systems~\cite{adachain,adaptbft,threatadapt,adacon} switch protocols to optimize throughput or
-respond to threats. That line answers \emph{when} to switch; it assumes the candidate engines are
-interchangeable at the switch point and does not provide a safe construction for crossing a
-fault-model boundary or a verifiable way to undo a switch. SAGE is the complementary boundary
-\emph{mechanism} such a policy would invoke, not a competing policy.
+The prototype passes PoA$\rightarrow$HotStuff authority after a persisted multi-share CutCert. During
+dual-run, the legacy engine is the only authoritative finalizer and the target validates the same
+finalized blocks without proposing. The CutCert quorum-binds the chain, epoch, configuration, target
+generation, boundary block, and root. Independently, an $n-f$ ManifestCertificate under the Manifest
+authority scope quorum-authenticates the complete manifest payload, and the local store enforces a
+durable one-body lock per epoch. Dedicated Terminal-scope Abort/Seal certificates, durable exclusive
+terminal signing, and certificate-gated local transitions are also implemented. Reliable manifest
+and terminal-share gossip, committee-wide fence deployment, and terminal-round convergence are not
+implemented in the current runtime; bounded post-heal cutover convergence is measured in
+Section~\ref{sec:rq2}.
 
-This paper addresses that gap with SAGE, a migration protocol built around four
-mechanisms: a single-finalizer dual-run invariant, a quorum-certified cutover decision, an
-$n{-}f$ multi-signature migration manifest, and a deadline-bounded rollback under a two-tier
-finality model. During a bounded dual-run interval the legacy engine remains the only
-finalizer, so exactly one canonical chain exists, while the target engine validates that
-identical chain in shadow mode and recomputes its own state roots. Cutover transfers
-authority only when a quorum of validators jointly certifies a stability predicate over
-consecutive shadow-valid blocks with matching roots, which makes the cutover a single
-agreed decision rather than a set of independent local choices. A multi-signed manifest
-binds the boundary to a specific chain identifier, epoch, and parent so that an abort before
-a fixed deadline returns the chain deterministically to the legacy state, and so that any
-auditor can verify the transition after the fact.
+The central observation is that a target engine's ordinary commit quorum need not be a safe
+migration quorum. For $\mathcal{V}_{\mathrm M}=\mathcal{V}_1=\mathcal{V}_2$, with one corruption
+universe containing at most $f$ Byzantine members and $n\ge 3f+1$, a certificate threshold $q$ is live with $f$
+silent validators when $q\le n-f$, and conflicting certificates necessarily share a correct signer
+when $2q-n>f$. Thus every integer threshold in $((n+f)/2,n-f]$ is safe and live under the
+fixed-committee assumptions. SAGE chooses $n-f$, the maximal live threshold, rather than treating
+the target engine's native quorum as automatically sufficient at a heterogeneous boundary.
 
-The conceptual contribution underlying all four mechanisms is to treat the \emph{heterogeneous
-fault-model boundary} as a first-class object of study rather than an implementation detail of a
-particular upgrade. Deployed live transitions (the Merge, Cosmos/Tezos upgrades) and the
-academic reconfiguration line both hold the \emph{finalization rule} fixed---they change the
-validator set, the software version, or the fork-choice tip, but a single quorum family and a
-single notion of ``committed'' persist across the change. The problem SAGE isolates is what
-happens when the finalization rule \emph{itself} changes at a height: the legacy engine's quorum
-(a PoA authority/honest-majority rule) and the target engine's quorum (a BFT $n{-}f$/$2f{+}1$
-rule) are structurally different sets, so the very predicate that decides ``is this block final''
-is not shared across the boundary. We show this is not a cosmetic difference: it is exactly the
-condition under which a switch mechanism that is safe in the homogeneous case (including the
-closest live-switch reference point, Cox, run on its own $2f{+}1$ checkpoint gate) can nonetheless fork,
-because two structurally distinct quorums can both be satisfied on the two sides of a partition
-straddling the boundary. SAGE's specific answer is the $n{-}f$ dual-run cutover threshold, which
-we prove and empirically isolate as the property that closes exactly this gap. To our knowledge
-this is the first construction that (i) defines the heterogeneous crossing abstractly through an
-engine-agnostic interface, (ii) gives a proven cross-boundary safety invariant that holds when
-the quorum family changes, and (iii) pairs it with a verifiable, deadline-bounded rollback of the
-boundary itself. The main contributions are as follows.
+This paper makes four contributions:
 \begin{enumerate}
-  \item We formalize heterogeneous consensus migration through an abstract engine interface
-  and a labeled transition system, define the shadow-anchoring invariant under which two
-  engines coexist without ever both finalizing a block, and state the target consensus-state
-  bootstrap that a heterogeneous handoff requires.
-  \item We design SAGE with a quorum-certified cutover decision (a CutCert) and a
-  multi-signature migration manifest bound to chain identifier, epoch, and parent hash, and
-  we give the controller as an explicit algorithm with constant per-block work and linear
-  one-time decision cost.
-  \item We prove uniqueness of the cutover decision through quorum intersection,
-  cross-boundary safety as an inductive invariant, no-scheduled-stop liveness for successful handoffs, conditional migration completion, unconditional rollback safety, and
-  conditional automatic-replay liveness under a two-tier provisional and absolute finality
-  model that reconciles reversibility with client semantics.
-  \item We give cryptographic security games for manifest unforgeability and replay
-  resistance with reductions to signature unforgeability and hash collision resistance, a
-  coverage-based characterization of shadow-anchoring detection that avoids any per-block
-  detection-independence assumption, and message and round complexity theorems for cutover and abort.
-  \item We evaluate SAGE with deterministic simulator campaigns, a
-  multi-process testbed, a bounded model check, and a one-process local runtime. The
-  evaluation reports no observed safety violations in the simulator partition
-  model, an observed cross-boundary fork differential in the multi-process testbed in which the
-  ungated control forks in every run while quorum-gated SAGE never forks, exhaustive model-check
-  verification of the boundary-safety and rollback invariants over $n\in\{4,7,10\}$, SAGE
-  cutover-evidence latency and validator-count scaling, in-window rollback and past-deadline
-  reversion refusal, and restart/continue recovery in the local runtime.
+  \item It formulates migration between deterministic-finality engines through an abstract engine
+  interface and a single-authority shadow-execution model.
+  \item It specifies a CutCert boundary, a quorum-authenticated complete-manifest envelope,
+  provisional labels, and dedicated $n-f$ Abort/Seal certificates with a durable exclusive signing
+  predicate and certificate-gated terminal transitions.
+  \item It derives the CutCert quorum algebra analytically and bounded-checks complete-manifest
+  agreement, a manifest-bound fence action, and certificate-gated absolute promotion, each paired
+  with a falsifying control the checker must catch.
+  \item It evaluates the design through simulation, a TCP multi-process testbed, bounded model
+  checking with falsifying controls, and a retained configured-endpoint campaign. Each evidence
+  tier is reported according to what its archived bytes can establish.
 \end{enumerate}
 
-\paragraph{Scope and non-goals.}
-SAGE targets permissioned blockchains with deterministic finality and a declared
-single-finalizer predicate. The legacy engine may be a crash/honest-majority PoA chain or a
-Byzantine-tolerant engine, but SAGE inherits that engine's own finality predicate: it does not
-repair a legacy protocol that can equivocate under its stated fault model, nor does it re-prove the
-target engine's safety in isolation. The automatic replay branch of rollback is likewise scoped:
-it requires metadata-independent transaction execution or an explicitly captured replay context;
-arbitrary EVM/oracle-dependent clean replay, sharded-state migration, probabilistic-finality source
-chains, and validator-set reconfiguration overlapping the migration epoch are outside the claims of
-this paper. Finally, our controlled-RTT real-host experiments isolate the protocol effect under a
-reproducible network delay; dispatching the same harness across physically geo-separated regions is
-turnkey operational validation rather than a prerequisite for the safety differential.
-
-\paragraph{What SAGE does not prove.}
-For clarity, the claims below do not include: (i) repairing a legacy engine that violates its own
-single-finalizer predicate; (ii) proving the target BFT engine in isolation; (iii) automatic replay
-for arbitrary metadata- or oracle-dependent workloads without replay-context capture; (iv) a full
-mechanized refinement proof from TLA+ to Rust; (v) overlapping validator-set reconfiguration during
-$[h_{\mathrm{d}},h_{\mathrm{r}})$; or (vi) a measured constant-size threshold-certificate
-implementation. Each item is either an explicit assumption, a fail-closed branch, or future work
-rather than an implicit claim.
-
-The remainder of this paper is organized as follows. Section~\ref{sec:related} reviews
-related work, including deployed live transitions, and positions SAGE.
-Section~\ref{sec:model} states the system model, the abstract engine interface, and the
-combined fault threshold. Section~\ref{sec:threat} gives the threat model and the abort
-trigger analysis. Section~\ref{sec:protocol} presents the SAGE protocol and the
-cryptographic manifest. Section~\ref{sec:analysis} proves the safety, liveness,
-termination, rollback, and cryptographic properties and analyzes complexity.
-Section~\ref{sec:eval} reports the experimental evaluation. Section~\ref{sec:discussion}
-discusses generality, deployment, and limitations, and Section~\ref{sec:conclusion}
-concludes.
+\paragraph{Scope.}
+SAGE targets monolithic permissioned chains with deterministic finality and a fixed migration
+committee. It inherits the safety assumptions of both engines and does not repair an equivocating
+legacy protocol. Clean transaction replay requires metadata-independent execution or a committed
+replay context. Probabilistic-finality sources, concurrent membership reconfiguration, sharded
+state, arbitrary external nondeterminism, and a mechanized refinement proof from the formal model
+to the executable system are outside the present scope. The implementation is a research prototype rather than a
+production blockchain node.
 
 % ===================== RELATED WORK =====================
 \section{Related Work}
 \label{sec:related}
 
-\subsection{Byzantine Fault Tolerant Consensus}
-The theory of agreement under failures establishes the impossibility of deterministic
-consensus with a single faulty process in fully asynchronous networks~\cite{flp} and the
-feasibility of agreement under partial synchrony~\cite{dls}. Practical Byzantine fault
-tolerance~\cite{pbft} brought these ideas to deployable systems, and crash-tolerant
-protocols such as Paxos~\cite{paxos} and Raft~\cite{raft} shaped the engineering of
-replicated logs. Blockchain demand revived the area. HotStuff~\cite{hotstuff} achieves
-linear message complexity and responsiveness through pipelining, Tendermint~\cite{tendermint}
-popularized a gossip-based BFT for chains, and a family of directed acyclic graph protocols,
-including Narwhal and Tusk~\cite{narwhal}, Bullshark~\cite{bullshark}, Shoal~\cite{shoal},
-Autobahn~\cite{autobahn}, and Mysticeti~\cite{mysticeti}, separates dissemination from
-ordering to raise throughput. This body of work defines candidate \emph{target} engines for a
-migration but assumes the consensus protocol is fixed once a chain is running, which is the
-assumption we relax. SAGE is therefore not a competitor to these throughput-optimized
-engines: it is the mechanism that lets a running chain \emph{adopt} one of them. A
-high-throughput DAG-BFT design such as Autobahn or Mysticeti is exactly the kind of engine an
-operator would migrate \emph{to}, and SAGE's engine interface admits any target that exposes a
-deterministic committed-prefix root and a validation routine (Section~\ref{sec:eval}), so a
-throughput race against them would measure the target engine, not the migration. Flexible
-BFT~\cite{flexbft} is closest in spirit on heterogeneous
-assumptions: it lets clients with different beliefs draw different commit decisions from one
-transcript. SAGE differs in that the two engines are temporally sequenced rather than
-simultaneously interpreted, and the boundary between them is the object that must be made
-safe.
+\paragraph{Consensus and reconfiguration.}
+Classical results establish the limits of asynchronous consensus~\cite{flp} and the partial-
+synchrony model used by practical BFT protocols~\cite{dls,pbft}. Modern engines include
+HotStuff~\cite{hotstuff}, Tendermint~\cite{tendermint}, DAG-based protocols
+\cite{narwhal,bullshark,shoal,shoalpp,autobahn,mysticeti}, and broadcast/consensus hybrids such as
+Sui Lutris~\cite{suilutris}. Shoal++ is a current high-throughput, low-latency DAG-BFT design, not a
+runtime-switching baseline~\cite{shoalpp}. Reconfiguration changes the replica set while retaining a
+consensus rule~\cite{reconfig,bftsmart,mongoraft}. The evaluated SAGE artifact studies a fixed-
+committee PoA$\rightarrow$HotStuff boundary. Its relation to current runtime-switching frameworks is
+qualitative here and must be established against BFTBrain/Abstract and Cox.
 
-\subsection{Live Protocol Transitions in Deployed Systems}
-The most prominent real-world precedents for SAGE are industrial. The Ethereum Merge
-replaced a Nakamoto proof-of-work engine with the Gasper proof-of-stake
-protocol~\cite{gasper}, which couples the Casper finality gadget~\cite{casperffg} with a
-fork-choice rule. Operationally the transition ran a separate beacon chain in parallel for
-an extended period and then cut over when a terminal total difficulty was reached. This is a
-shadow-then-cutover pattern and the closest deployed analogue to our dual-run and cutover,
-but it was engineered for one specific pair of protocols, it provides no formal
-cross-boundary safety theorem, and it offers no bounded, verifiable rollback once the cutover
-has occurred. Polkadot performs forkless runtime upgrades and obtains finality from the
-GRANDPA gadget~\cite{grandpa}, which finalizes chains rather than blocks and informs clients
-when commits are still provisional, a design that resonates with our two-tier finality model.
-The Cosmos stack coordinates in-protocol upgrades at a governance-scheduled height, and Tezos
-amends its protocol on chain, including a transition of its consensus algorithm to
-Tenderbake~\cite{tenderbake}, a dynamic repeated-consensus protocol with deterministic
-finality and evolving committees. These systems show that live upgrades are practical and
-valuable; what they do not provide, and what SAGE contributes, is a general construction with
-an explicit cross-boundary safety argument, an executable invariant monitor that checks it on
-every simulated run, and a manifest-bound, deadline-limited rollback.
+\paragraph{Deployed transitions.}
+The Ethereum Merge combined a long-running parallel proof-of-stake chain with a fixed
+terminal-total-difficulty trigger~\cite{ethereummerge,eip3675}. Ethereum Gasper, Polkadot GRANDPA,
+Cosmos/Tendermint, and Tezos Tenderbake illustrate deployed finality mechanisms with different
+protocol structures~\cite{gasper,grandpa,tendermint,tenderbake}. The prototype adds a migration-
+specific CutCert, complete-payload ManifestCertificate, and provisional target labels; reliable
+manifest and terminal-share dissemination plus live terminal-round convergence remain open.
 
-\subsection{Reconfiguration, Forks, and Membership Change}
-Changing a running replicated system has been studied mainly as membership reconfiguration.
-Lamport, Malkhi, and Zhou formalize reconfiguration of a state machine~\cite{reconfig}, and
-BFT-SMaRt~\cite{bftsmart} implements reconfiguration for Byzantine replication while keeping
-one protocol. Sui Lutris~\cite{suilutris} gives a provably safe reconfiguration protocol for a
-consensusless blockchain and reports no visible performance degradation across reconfiguration
-events, which is the closest academic result to ours in rigor. The crucial distinction is that
-reconfiguration changes which validators run a fixed protocol, so the finalization rule, the
-quorum structure, and the certificate format are invariant across the change. SAGE changes the
-protocol the validators run, which alters the finalization rule itself, so the standard
-configuration-object abstraction does not apply and a dedicated cross-boundary argument is
-required. The cutover decision is itself a one-shot agreement, which connects SAGE to the
-literature on view synchronization and pacemakers for leader-based BFT: the readiness gather and
-CutCert play a role analogous to a synchronizer that brings correct validators into a common
-view before the target engine takes over. In the public-chain setting, protocol changes are
-usually deployed as hard forks coordinated at a flag-day height~\cite{tendermint,bitcoin}, an
-approach that trades a snapshot for the risk of a chain split when validators or network
-partitions disagree about the switch; our evaluation reproduces exactly this failure as an
-emergent behavior.
+\paragraph{Runtime and adaptive switching.}
+Abstract's ``The Next 700 BFT Protocols'' composes protocol instances through an Abstract/Backup
+wrapper, idempotent requests, and initialization histories~\cite{abstract}. BFTBrain is the principal
+recent runtime-switching comparator: within one BFT cluster it selects among PBFT, Zyzzyva,
+CheapBFT, Prime, SBFT, and HotStuff-2 at epoch boundaries, using checkpoint/init histories and an
+Abstract-derived switching argument~\cite{bftbrain}. Cox coordinates homogeneous-BFT switching using
+configuration blocks, stable-checkpoint state, core initialization, and chained recovery
+semantics~\cite{cox}. Other adaptive frameworks select or tune protocols under changing conditions
+\cite{spectrum,adapt,aware,dapbft,adachain,adaptbft,threatadapt,adacon}; resource- and attack-resilient
+designs harden a protocol family~\cite{rebft,prime,aardvark,rbft}. Table~\ref{tab:switchcompare}
+compares mechanisms rather than headline labels. BFTBrain and Cox were not executed in this work;
+the empirical checkpoint-style and under-quorum arms are internal controls, not implementations of
+either system.
 
-\subsection{Runtime Consensus-Protocol Switching}
-The work closest to SAGE switches the consensus protocol itself at runtime rather than the
-validator set. The ``Abstract'' framework and its Aliph instantiation~\cite{abstract} compose a
-BFT protocol from abortable state-machine-replication instances and switch to the next instance
-when the current one aborts, with a composability theorem that preserves total order across
-switches. Cox~\cite{cox} makes the live switch concrete and engine-agnostic, hot-swapping a
-running BFT engine (demonstrated PBFT$\leftrightarrow$HotStuff) with no downtime: it triggers on
-a configuration block, certifies epoch termination with a threshold-aggregated
-\emph{StableCheckpoint} that is structurally analogous to our CutCert, and recovers lagging nodes
-through an epoch-mismatch sub-protocol. Cox is itself the most recent point in a lineage of
-runtime-switching frameworks: Spectrum~\cite{spectrum} adds a ``meta-consensus'' layer to switch
-protocols at runtime with zero downtime, but assumes \emph{crash} faults and switches among
-crash-fault protocols (Multi-Paxos, Raft, Caesar), not Byzantine ones; ADAPT~\cite{adapt} reconciles
-several \emph{homogeneous} BFT protocols in one abortable system and uses machine-learning
-predictions to select the highest-scoring protocol at runtime; and REBFT~\cite{rebft} switches
-between resource-saving and fault-handling \emph{modes of a single} BFT algorithm rather than
-replacing the engine. Across this lineage the switch stays within one fault model and one quorum
-family---crash-to-crash, or Byzantine-to-Byzantine, or mode-to-mode---which is precisely the
-condition SAGE relaxes. We therefore do not claim that live consensus switching
-is itself new. Crucially, Cox scopes itself explicitly: its authors state it is ``only applicable
-to BFT consensus protocols in a semi-synchronous network with clear quorum sizes uniformly agreed
-upon by consensus clusters,'' and when the two engines differ it selects the single larger quorum
-$q=\max(q_{\mathrm{old}},q_{\mathrm{new}})$ from that \emph{uniform} quorum family. The
-heterogeneous PoA$\rightarrow$BFT crossing SAGE targets---where the legacy engine has an
-authority/honest-majority quorum and no Byzantine quorum family at all---is therefore outside
-Cox's own stated applicability, and Cox provides no reversibility mechanism. This is not a
-deficiency of Cox but a scope boundary its authors draw; SAGE addresses precisely the case beyond
-that boundary. SAGE differs along three axes that none of this prior work addresses jointly.
-First, Abstract and Cox switch among \emph{homogeneous} engines that share one fault model and
-quorum family (Byzantine $\leftrightarrow$ Byzantine); SAGE crosses fault models and finalization
-rules (authority/crash-style PoA $\rightarrow$ Byzantine BFT), where the quorum structure and
-certificate format themselves change at the boundary. This heterogeneous crossing, rather than
-live switching alone, is the safety problem SAGE addresses. Second, like Abstract and Cox we give
-a pen-and-paper safety argument; we complement it with a bounded TLA+/TLC
-model check (Section~\ref{sec:eval}) that exhaustively verifies the cross-boundary safety,
-cutover-decision uniqueness, and no-absolute-reversion invariants over
-$n\in\{4,7,10\}$ and all partition splits of the cutover window, with deliberately broken
-controls the checker must falsify. We also pair the argument with an executable invariant
-monitor that checks the cross-boundary properties on every simulated run, which neither
-Abstract nor Cox reports. Machine-checked safety for a live change has so far been
-demonstrated only for \emph{reconfiguration} of a fixed
-protocol~\cite{mongoraft,suilutris}, never for an engine boundary; our bounded model check
-is an intermediate step, and a full mechanized proof over all $n$ remains future work.
-Third, Cox provides only forward catch-up recovery and Abstract
-instances abort forward; neither offers a manifest-bound, deadline-limited verifiable rollback of
-the transition, which SAGE makes a first-class mechanism.
-
-Table~\ref{tab:switching} makes this comparison precise for the runtime-switching systems
-examined here, and adds an \emph{evidence-level} column that records how each row's claims are
-substantiated. We distinguish four evidence levels to keep the comparison honest: \textbf{AS}
-(analytical, from the cited paper's own text), \textbf{AR} (numbers as reported by that system's
-authors), \textbf{MC} (a control modeled in \emph{our} harness, not an execution of the peer's
-artifact), and \textbf{IX} (we independently executed the peer's artifact). No row is marked IX:
-we did not locate a public artifact for Cox after searching its paper, the publisher page, and
-author repositories, so an independent head-to-head execution against the closest comparator is
-presently unavailable; the Cox-inspired and Cox-threshold arms in Section~\ref{sec:eval} are
-therefore SAGE-native controls (MC), explicitly not executions of Cox. Among these systems, SAGE
-is the only one whose switch crosses the fault-model boundary, and the only one pairing that
-crossing with a bounded verifiable rollback; we do not claim SAGE is faster or safer than Cox
-inside Cox's own uniform-quorum BFT$\leftrightarrow$BFT setting, which its authors explicitly
-scope it to.
-
-\begin{table}[t]
+\begin{table*}[t]
 \centering
-\begin{threeparttable}
-\caption{Runtime-switching systems examined here, by mechanism and evidence level. ``Fault
-cross'' is whether the fault model itself changes across the switch (the property SAGE targets);
-``Rollback'' is a bounded, verifiable undo of the transition. Cells marked ``n.r.'' denote a
-property the cited work \emph{does not report}, not a proof of impossibility. Evidence level:
-AS = analytical from source, AR = authors' reported measurement, MC = modeled control in our
-harness, IX = independently executed peer artifact (none). Adaptive/policy and reconfiguration
-systems (AdaChain~\cite{adachain}, BFT-SMaRt~\cite{bftsmart}) appear in
-Table~\ref{tab:related} and are omitted here as they do not switch the engine.}
-\label{tab:switching}
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.2}
-\footnotesize
-\begin{tabular}{lccccc}
+\caption{Mechanism-scoped comparison of runtime switching. ``Not reported'' means that the cited
+mechanism does not expose the SAGE-specific surface in its stated model, not that the system is
+unsafe. BFTBrain and Cox are literature-only comparators and were not executed in this work.}
+\label{tab:switchcompare}
+\setlength{\tabcolsep}{1.5pt}
+\renewcommand{\arraystretch}{1.12}
+\tiny
+\begin{tabular}{L{0.075\textwidth}L{0.09\textwidth}L{0.105\textwidth}L{0.12\textwidth}L{0.105\textwidth}L{0.10\textwidth}L{0.10\textwidth}L{0.11\textwidth}L{0.095\textwidth}}
 \toprule
-System & \makecell{Switch\\object} & \makecell{Fault\\cross} & \makecell{Boundary\\cert} & \makecell{Verif.\\rollback} & \makecell{Evid.\\level} \\
+System & Committee model & \makecell[l]{Source$\rightarrow$target\\fault-model crossing} & \makecell[l]{State-transfer /\\handoff object} & \makecell[l]{Switch-agreement\\mechanism} & \makecell[l]{Client-visible\\finality tiers} & Rollback semantics & Formal scope & Evidence type \\
 \midrule
-Spectrum~\cite{spectrum}      & engine (CFT)     & \texttimes & none rep.        & n.r. & AS \\
-Abstract/Aliph~\cite{abstract}& engine (BFT)     & \texttimes & abort-order      & n.r. & AS \\
-ADAPT~\cite{adapt}            & engine (BFT, ML) & \texttimes & abort-history    & n.r. & AS \\
-REBFT~\cite{rebft}            & mode (same algo) & \texttimes & n/a              & n.r. & AS \\
-Cox~\cite{cox}                & engine (BFT)     & \texttimes & \makecell{StableCkpt\\$q{=}\max$} & n.r.\tnote{a} & AR \\
-\textbf{SAGE (this work)}     & \makecell{engine\\PoA$\to$BFT} & \checkmark & \makecell{CutCert\\($n{-}f$)} & \checkmark & MC+own\tnote{b} \\
+SAGE & One identical fixed committee in present theorems & PoA$\rightarrow$HotStuff under one corruption universe; distinct sets are future work & Separately $n-f$-certified boundary root plus $n-f$ complete-payload ManifestCertificate; manifest gossip absent & Independent $n-f$ cutover, manifest, abort, and seal certificates; terminal-share gossip absent & Internal provisional label and seal gate; no client flag & Certificate-gated local rollback; no live network terminal round & CutCert algebra plus bounded boundary, manifest, fence, and terminal-gate TLC; live-host fence deployment future & Prototype component, simulator, process, and bounded-model evidence \\
+BFTBrain~\cite{bftbrain} & Same BFT cluster with epoch switching & Switches among supported BFT instances; no unequal source/target corruption-universe claim used here & Stable checkpoint and initialization history through Abstract-derived wrappers & Epoch switch decision plus wrapper protocol & No SAGE-style provisional/sealed interface reported & Abstract/Backup-style recovery, not deadline-bounded client rollback & Safety/liveness argument for supported wrapped protocols & Published multi-machine system and public artifact; not executed here \\
+\makecell[l]{Abstract/\\Backup}~\cite{abstract} & One replica group composing BFT protocol instances & Common BFT fault model; no heterogeneous fault-universe crossing used here & Initialization history and idempotent request state & Abstract wrapper with Backup for safe composition/progress & Single application history; no provisional/sealed tier reported & Backup fallback/recovery, not client-visible suffix rollback & Idempotency and composition theorem in the Abstract model & Formal framework and reported evaluation; not executed here \\
+Cox~\cite{cox} & Homogeneous BFT setting & No unequal source/target fault-model crossing used here & Configuration block, stable checkpoint, core initialization & Stable-checkpoint-coordinated switch & No SAGE-style provisional/sealed interface reported & Chained recovery semantics; no SAGE deadline model & Safety/liveness in the Cox system model & Published design/evaluation; not executed here \\
 \bottomrule
 \end{tabular}
-\begin{tablenotes}\footnotesize
-\item[a] Cox reports forward epoch-catch-up recovery for lagging nodes, not a bounded reversible
-rollback of the transition.
-\item[b] SAGE's rows are modeled controls plus measurements of our own executed artifact
-(simulator, multi-process testbed, bounded TLC), not an execution of any peer system.
-\end{tablenotes}
-\end{threeparttable}
-\end{table}
+\end{table*}
 
-\subsection{Adaptive and Autonomous Consensus Switching}
-A recent and active line of work makes the choice of protocol \emph{itself} a runtime decision driven
-by a policy. AdaChain~\cite{adachain} models permissioned-architecture selection as a contextual
-multi-armed bandit and switches architectures at runtime to maximize throughput under shifting
-workloads, with a Byzantine-robust switch path; its follow-up argues for consensus-protocol-level
-adaptation~\cite{adaptbft}. Threat-adaptive coordinators switch bidirectionally between PoA and
-PBFT according to a real-time threat score~\cite{threatadapt}, and Bayesian schemes such as
-ADACON~\cite{adacon} oscillate across PoW/PoS/PBFT/PoA/DPoS with hysteresis to damp churn. These
-systems answer \emph{when} and \emph{to which} protocol a network should switch, and they are
-explicitly throughput- or threat-optimizing. They are, however, \emph{policies}: they assume the
-candidate engines are interchangeable at the switch point, and none provides a safe construction for
-crossing a fault-model boundary, a cryptographically auditable boundary object, or a bounded,
-verifiable rollback of a switch that has begun. SAGE is complementary rather than competing: it is the
-\emph{safe heterogeneous-boundary mechanism} that such a policy would invoke to actually cross a
-PoA$\rightarrow$BFT boundary. An adaptive policy decides \emph{whether} to migrate; SAGE makes the
-migration itself safe, auditable, and bounded-reversible. Nothing prevents an AdaChain-style policy
-from supplying SAGE's schedule heights, which is the integration we sketch in
-Section~\ref{sec:discussion}; we therefore position SAGE not as a rival to autonomous switching but as
-the boundary-safety primitive the autonomous-switching literature currently lacks.
-
-\subsection{Permissioned and Sovereign Infrastructure}
-Permissioned platforms emphasize known validators, modular ordering, and operational
-accountability. Hyperledger Fabric~\cite{fabric} treats the ordering service as pluggable and
-integrates identity-based membership, and execution-layer advances such as
-Block-STM~\cite{blockstm} show that high throughput depends on the whole stack, not consensus
-alone. Sovereign deployments add national identity, regulated finance, and a controlled
-upgrade calendar, and post-quantum readiness is increasingly a requirement following the
-standardization of lattice-based primitives~\cite{nistpqc}. These platforms motivate staged
-consensus deployment but leave the engine transition itself unspecified, which is the gap
-SAGE fills.
-
-\begin{table}[t]
-\centering
-\caption{Comparison of approaches to changing a live replicated or blockchain system.
-``Protocol swap'' replaces the consensus engine with a structurally different one;
-``Verif.\ rollback'' is a cryptographically verifiable, bounded undo of the transition.
-Runtime-swap (Cox)~\cite{cox} is the closest prior work but switches \emph{homogeneous}
-BFT engines; $\dagger$ marks that SAGE's swap is additionally \emph{heterogeneous}, crossing
-fault model and finalization rule, and is the only entry carrying a verifiable bounded
-rollback. $\ddagger$ marks that AdaChain's swap is policy-driven among \emph{homogeneous,
-interchangeable} permissioned architectures and optimizes throughput, not heterogeneous-boundary
-safety; it is a switching \emph{policy} complementary to SAGE's boundary \emph{mechanism}.}
-\label{tab:related}
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.18}
-\footnotesize
-\begin{tabular}{lccccc}
-\toprule
-Approach & \makecell{Zero\\halt} & \makecell{Protocol\\swap} & \makecell{Fork\\safe} & \makecell{Verif.\\rollback} & \makecell{Client\\stable} \\
-\midrule
-Stop-the-world~\cite{reconfig}         & \texttimes & \checkmark & \checkmark & \texttimes & \texttimes \\
-Hard-fork flag-day~\cite{tendermint}   & \checkmark & \checkmark & \texttimes & \texttimes & \texttimes \\
-Ethereum Merge~\cite{gasper}           & \checkmark & \checkmark & \checkmark & \texttimes & \texttimes \\
-Forkless upgrade~\cite{grandpa}        & \checkmark & partial    & \checkmark & \texttimes & \checkmark \\
-Cosmos x/upgrade~\cite{tenderbake}     & \texttimes & \texttimes & partial    & \texttimes & partial \\
-Runtime swap (Cox)~\cite{cox}          & \checkmark & \checkmark & \checkmark & \texttimes & \checkmark \\
-Adaptive (AdaChain)~\cite{adachain} & \checkmark & \checkmark$^\ddagger$ & partial & \texttimes & partial \\
-SMR reconfig~\cite{bftsmart}           & \checkmark & \texttimes & \checkmark & \texttimes & \checkmark \\
-Sui Lutris reconfig~\cite{suilutris}   & \checkmark & \texttimes & \checkmark & \texttimes & \checkmark \\
-\textbf{SAGE (this work)}              & \checkmark & \checkmark$^\dagger$ & \checkmark & \checkmark & \checkmark \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Table~\ref{tab:related} summarizes the landscape, including the deployed transitions
-discussed above. Existing methods each give up at least one property a sovereign operator
-needs during an engine transition. SAGE combines no scheduled stop-the-world phase,
-an actual protocol swap, fork safety, a verifiable bounded rollback, and a stable client
-interface. The distinction from reconfiguration is precise: reconfiguration changes which
-validators run a fixed protocol, whereas SAGE changes the protocol the validators run, which
-alters the finalization rule and therefore demands the cross-boundary safety argument of
-Section~\ref{sec:analysis}.
-
-\subsection{Operational Upgrade Mechanisms in Deployed Platforms}
-Beyond the academic line, several production permissioned stacks ship consensus- or
-runtime-upgrade mechanisms, and it is worth stating precisely why they do not already solve the
-heterogeneous-boundary problem. Enterprise Ethereum clients such as Hyperledger Besu and GoQuorum
-run IBFT~2.0 and QBFT and support validator-set changes and scheduled hard-fork blocks, but a move
-between their consensus modes is a coordinated flag-day fork with no certified boundary object and
-no verifiable bounded rollback, exactly the hard-fork row of Table~\ref{tab:related}. Hyperledger
-Fabric~\cite{fabric} historically migrated its ordering service from Kafka to Raft, yet Fabric
-isolates ordering behind a service abstraction, so this is a reconfiguration of a pluggable
-component rather than a cross-fault-model finalization-rule change on the finalized ledger. Cosmos
-SDK chains coordinate upgrades through an on-chain \texttt{x/upgrade} governance module that halts
-at a planned height and restarts under new binary logic~\cite{tenderbake}; this is a stop-the-world
-upgrade with an explicit halt, and it does not run two heterogeneous finalizers side by side.
-Substrate/Polkadot forkless runtime upgrades hot-swap the state-transition function via a WASM blob
-but deliberately keep the finality gadget (GRANDPA~\cite{grandpa}) fixed, so they change execution,
-not the finalization rule. In every case the deployed mechanism either halts, forks, or holds the
-finality rule fixed; none provides the shadow-anchored dual-run, the $n{-}f$ quorum-certified
-cutover, and the deadline-bounded verifiable rollback that SAGE contributes for an actual
-heterogeneous engine crossing.
+\paragraph{Positioning.}
+Permissioned platforms such as Hyperledger Fabric~\cite{fabric} provide modular execution and
+consensus components. The current artifact implements the CutCert-gated handoff subset; integration
+with selectors and complete terminal recovery remains future work. It additionally implements a
+separately $n-f$-certified heterogeneous boundary root, explicit provisional finality, and
+Terminal-scope Abort/Seal certificate gates. Reliable manifest and terminal-share dissemination,
+live committee-wide fence deployment, and a direct BFTBrain/Abstract/Cox
+evaluation are still required before claiming that this combination is a settled advantage. The
+present scope is deterministic-finality, monolithic-state migration under one fixed identical
+committee.
 
 % ===================== SYSTEM MODEL =====================
 \section{System Model and Engine Interface}
@@ -535,35 +236,29 @@ heterogeneous engine crossing.
 \subsection{Network and Validators}
 A permissioned blockchain is maintained under the partial synchrony model~\cite{dls}: there is
 an unknown global stabilization time (GST) after which message delay is bounded by $\Delta$;
-before GST delays are arbitrary. We distinguish three validator sets. $\mathcal{V}_1$ is the
-legacy finalizer set, $\mathcal{V}_2$ is the target-engine validator set, and
-$\mathcal{V}_{\mathrm{M}}$ is the migration attestation committee whose signatures count toward a
-CutCert or AbortCert. The main protocol assumes a fixed migration epoch with
-$|\mathcal{V}_{\mathrm{M}}|=n$ and no membership changes during
-$[h_{\mathrm{d}},h_{\mathrm{r}})$. In the common case
-$\mathcal{V}_{\mathrm{M}}=\mathcal{V}_1=\mathcal{V}_2$. If an operator migrates to a different target
-set, then before $h_{\mathrm{d}}$ governance must register a transitional
-$\mathcal{V}_{\mathrm{M}}$ and bind each member's legacy authority key, target consensus key, and
-migration-attestation key in the on-chain platform state; CutCert verification is then over this
-registry rather than over ad hoc peer identities. Validators communicate over authenticated
-channels. The adversary may corrupt validators (Byzantine), delay messages before GST, and induce
-crashes and partitions. We write $f$ for the number of Byzantine members tolerated in
-$\mathcal{V}_{\mathrm{M}}$; its precise meaning across the migration is fixed by the combined
-threshold below.
+before GST delays are arbitrary. For analysis we assume partial synchrony and authenticated
+channels. The executable testbed uses real TCP and testbed Ed25519 shares but does not implement
+production transport authentication or key custody. This paper's theorems and artifact require
+$\mathcal{V}_{\mathrm M}=\mathcal{V}_1=\mathcal{V}_2$, $|\mathcal{V}_{\mathrm M}|=n$, no membership
+changes during $[h_{\mathrm d},h_{\mathrm r})$, and one corruption set of size at most
+$f\le\min(f_1,f_2)$. Distinct-committee migration requires a future joint-quorum and key-mapping
+model and is outside the present guarantees. The adversary may delay messages before GST and induce
+crashes and partitions in the one committee.
 
 \subsection{Chain State and Block Transition}
-Let the chain state at height $h$ be a tuple
+Let the consensus-independent replicated state at height $h$ be
 \begin{equation}
-S_h = (A_h, P_h, C_h),
+X_h = (A_h, P_h), \qquad r_h=\mathrm{root}(X_h),
 \end{equation}
 where $A_h$ is the account and storage state of the execution layer, $P_h$ is
-platform-managed state including the validator registry and the migration schedule, and
-$C_h$ is the consensus metadata of the active engine. A block $B_h$ carries an ordered
-transaction list and a header. Execution applies a deterministic transition
+platform-managed state including the validator registry and the migration schedule. Each engine
+also maintains local consensus metadata $C_h^{(j)}$, which is deliberately excluded from the
+cross-engine root because heterogeneous engines encode different views, locks, and certificates.
+A block $B_h$ carries an ordered transaction list and a header. Execution applies a deterministic transition
 \begin{equation}
-S_{h} = \delta_{\mathrm{exec}}(S_{h-1}, B_h),
+X_{h} = \delta_{\mathrm{exec}}(X_{h-1}, B_h),
 \end{equation}
-and the header commits the post-execution state root $r_h = \mathrm{root}(S_h)$. We adopt the
+and the header commits the post-execution state root $r_h$. We adopt the
 post-state convention throughout: $r_h$ is the root after applying $B_h$. A block is
 canonical only if it additionally satisfies the active engine's finalization rule, defined
 next. Table~\ref{tab:notation} lists the notation.
@@ -577,10 +272,11 @@ A consensus engine $\mathcal{C}$ is a tuple $(\mathsf{Q}, \mathsf{Final}, \maths
 \mathsf{Init})$ where $\mathsf{Q}$ is a finalization quorum rule, $\mathsf{Final}$ is a
 single-finalizer predicate that finalizes at most one block per height when a $\mathsf{Q}$
 quorum endorses it, $\mathsf{Root}$ is a deterministic state-root function, and
-$\mathsf{Init}$ initializes the engine's internal consensus metadata $C_h$ from a state root
+$\mathsf{Init}$ initializes the engine's internal consensus metadata $C_h^{(j)}$ from a state root
 and a height. An engine is BFT if $\mathsf{Q}$ requires $2f+1$ of $n \ge 3f+1$; it is an
 authority engine if $\mathsf{Q}$ requires an honest majority $\lfloor n/2\rfloor+1$.
 \end{definition}
+This is an interface contract; conformance of an external engine is an assumption.
 The single-finalizer predicate $\mathsf{Final}$ requires \emph{deterministic} finality: a
 finalized block is irreversible under the engine's own rule. This deliberately excludes
 \emph{probabilistic}-finality legacy engines (e.g.\ longest-chain Nakamoto consensus), whose
@@ -589,23 +285,27 @@ deterministic-to-deterministic crossing (authority/BFT $\rightarrow$ BFT); migra
 \emph{from} a probabilistic-finality source would require first defining a deterministic
 checkpoint over the probabilistic prefix (as the Ethereum Merge did with a
 terminal-total-difficulty trigger and a finality gadget), which is a separate problem we do
-not address. This is a scope choice, not a limitation of the mechanism: where a deterministic
-finalization rule exists, SAGE applies; where it does not, the shadow-anchoring invariant (one
-canonical finalized block per height) is not even well-defined.
-SAGE requires only that the legacy engine $\mathcal{C}_1$ and the target engine
-$\mathcal{C}_2$ both conform to Definition~\ref{def:engine}, expose a deterministic root, and
-admit a shadow-usable validation routine. We instantiate $\mathcal{C}_1$ as PoA and
-$\mathcal{C}_2$ as pipelined HotStuff~\cite{hotstuff}, and we discuss a second instantiation
-(Raft to HotStuff) in Section~\ref{sec:discussion}.
+not address. Applicability additionally requires compatible deterministic state execution, a
+shadow-validation adapter, externally bootstrappable target metadata, durable generation fencing,
+and a fixed registered migration committee. Without these capabilities, the shadow-anchoring
+invariant or certified handoff is not well-defined.
+Accordingly, the legacy engine $\mathcal{C}_1$ and target engine $\mathcal{C}_2$ must conform to
+Definition~\ref{def:engine}, expose a deterministic root, admit a shadow-usable validation adapter,
+and satisfy the fencing and bootstrap obligations above. The artifact instantiates
+PoA$\rightarrow$HotStuff and exercises a Raft$\rightarrow$HotStuff component path. General
+deterministic-engine pairs are supported only if they supply the listed adapters and fencing
+obligations; this has not been demonstrated.
 
 \begin{definition}[Target bootstrap]
 \label{def:bootstrap}
 At cutover height $h_{\mathrm{c}}$ the target engine initializes its internal consensus
-metadata by $C_{h_{\mathrm{c}}} \gets \mathcal{C}_2.\mathsf{Init}(r_{h_{\mathrm{c}}-1},
+metadata by $C^{(2)}_{h_{\mathrm{c}}} \gets \mathcal{C}_2.\mathsf{Init}(r_{h_{\mathrm{c}}-1},
 h_{\mathrm{c}})$, that is, the target adopts the legacy-finalized state root as its genesis
-anchor, sets its highest quorum certificate to the bootstrap certificate carried in the
-manifest, and starts its first view at $h_{\mathrm{c}}$. The execution state $A$ and platform
-state $P$ are carried unchanged; only $C$ is reinitialized.
+anchor, treats the bootstrap certificate carried by the manifest as an authority-transfer/genesis
+anchor without installing it as an ordinary target-engine QC, and starts its first view at
+$h_{\mathrm{c}}$. In the HotStuff instantiation, the highest QC and lock are initially empty; the
+first target-native QC must be formed by a real target quorum. The execution state $A$ and
+platform state $P$ are carried unchanged; only the target-local $C^{(2)}$ is initialized.
 \end{definition}
 Definition~\ref{def:bootstrap} makes explicit the step that a heterogeneous handoff requires
 and that a homogeneous reconfiguration does not: the target engine's consensus metadata has no
@@ -617,24 +317,26 @@ history on the legacy chain and must be seeded from the boundary anchor.
 \label{tab:notation}
 \renewcommand{\arraystretch}{1.15}
 \footnotesize
-\begin{tabular}{c p{0.60\columnwidth}}
+\begin{tabular}{c L{0.60\columnwidth}}
 \toprule
 Symbol & Description \\
 \midrule
-$\mathcal{V}_1,\,\mathcal{V}_2,\,\mathcal{V}_{\mathrm{M}}$ & legacy set, target set, and migration attestation committee \\
-$n$ & size of $\mathcal{V}_{\mathrm{M}}$ during the fixed migration epoch \\
+$\mathcal{V}_1=\mathcal{V}_2=\mathcal{V}_{\mathrm{M}}$ & one identical legacy, target, and migration committee \\
+$n$ & size of the identical committee during the fixed migration epoch \\
 $f_1,\,f_2$ & Byzantine threshold of $\mathcal{C}_1$ (PoA) and $\mathcal{C}_2$ (HotStuff) \\
-$f$ & combined threshold $\min(f_1,f_2)$ enforced over $\mathcal{V}_{\mathrm{M}}$ during migration \\
+$f$ & one corruption set of size at most $f\le\min(f_1,f_2)$ \\
 $\Delta$ & post-GST message delay bound \\
 $h$ & block height \\
-$S_h,\,r_h$ & chain state and post-execution state root at height $h$ \\
+$X_h,\,r_h$ & consensus-independent replicated state and its post-execution root at height $h$ \\
+$C_h^{(j)}$ & engine-$j$ local consensus metadata, excluded from $r_h$ \\
 $\mathcal{C}_1,\,\mathcal{C}_2$ & legacy and target consensus engines \\
 $\mathsf{Q}_i$ & finalization quorum of engine $\mathcal{C}_i$ \\
 $h_{\mathrm{d}},\,h_{\mathrm{c}},\,h_{\mathrm{r}}$ & dual-run start, cutover, rollback-deadline heights \\
 $\sigma_h,\,\tilde r_h$ & shadow verdict and shadow-recomputed root at height $h$ \\
 $\kappa$ & shadow-stability threshold (consecutive valid blocks) \\
-$\mathcal{M},\,\pi$ & migration manifest and its $n{-}f$ aggregated-signature certificate \\
-$\mathrm{CutCert},\,\mathrm{AbortCert}$ & quorum certificates for cutover and abort \\
+$\mathcal{M},\,\pi_{\mathrm B},\,\pi_{\mathrm M}$ & manifest, boundary CutCert, and complete-payload ManifestCertificate \\
+$\mathrm{CutCert},\,\mathrm{AbortCert},$ & quorum certificates for cutover, abort, and seal; \\
+$\mathrm{SealCert}$ & all use multi-share quorum evidence \\
 $\mathcal{A}(h)$ & authoritative engine at height $h$ \\
 $\tau$ & target-engine progress timeout for the abort path \\
 \bottomrule
@@ -642,14 +344,19 @@ $\tau$ & target-engine progress timeout for the abort path \\
 \end{table}
 
 \subsection{Combined Fault Threshold During Migration}
-The two engines need not share a fault threshold. PoA is safe under an honest majority,
-$\mathsf{Q}_1=\lfloor n/2\rfloor+1$, tolerating $f_1 < n/2$ crash faults but offering weaker
-Byzantine guarantees, whereas HotStuff requires $\mathsf{Q}_2=2f_2+1$ with $n\ge 3f_2+1$. The
-dual-run window is governed by whichever engine is the sole finalizer, namely $\mathcal{C}_1$,
-so its safety in that window is bounded by $f_1$. To state a single guarantee that holds
-across the boundary we define the combined threshold $f=\min(f_1,f_2)$ and assume at most $f$
-Byzantine validators. All theorems in Section~\ref{sec:analysis} are stated for $f$, and we
-note explicitly where the weaker engine bounds a given phase.
+The present theorems use one identical committee and one corruption universe. PoA is safe under an
+honest majority, $\mathsf{Q}_1=\lfloor n/2\rfloor+1$, with its declared legacy-phase assumptions,
+whereas HotStuff requires $\mathsf{Q}_2=2f_2+1$ with $n\ge 3f_2+1$. We assume at most
+$f\le\min(f_1,f_2)$ Byzantine validators in that same committee and require $n\ge3f+1$ for the
+CutCert threshold interval. Distinct committee sizes, corruption identities, and cross-set key
+mappings are outside all analytical guarantees in Section~\ref{sec:analysis}. A supplementary
+bounded model (\texttt{formal/SageDistinctCommittee.tla}) relaxes the identity restriction: with a
+migration committee $V_M$ and a target committee $V_T$ that partially overlap or are disjoint, TLC
+finds no counterexample to boundary agreement or cutover-certificate uniqueness when the gate uses
+the conservative joint threshold $\max(|V_M|-f_M,\,|V_T|-f_T)$, while a control that sizes the gate
+against the smaller committee alone is falsified. That result is a bounded model check, not a
+deployment claim: the runtime still assumes one identical committee, so a joint-quorum theorem and
+runtime role/key registry remain future work.
 
 \emph{What the legacy engine tolerates during dual-run.} We state the PoA fault model
 precisely, because ``PoA safety'' is often left informal. A standard round-robin PoA engine
@@ -658,37 +365,29 @@ but it does \emph{not} by itself prevent a Byzantine authority from equivocating
 distinct blocks at one height): with no $2f{+}1$-style quorum intersection, PoA's one-block-per-height
 guarantee relies on authorities not equivocating. We therefore make the assumption explicit and
 offer two readings. (i) \emph{Crash-only legacy model}: if the deployment trusts its authorities
-not to equivocate (the usual justification for choosing PoA in the first place), then during
-dual-run SAGE inherits exactly that crash-fault model, and the combined threshold $f=\min(f_1,f_2)$
-already reflects the weaker bound. (ii) \emph{Byzantine legacy model}: if authority equivocation
-must be tolerated, the legacy engine must supply an anti-equivocation mechanism (e.g.\ a
-$\lfloor n/2\rfloor{+}1$ signature quorum on each block, or attested-append-only key custody), in
-which case its single-finalizer predicate holds against $f_1<n/2$ Byzantine authorities. SAGE's
-cross-boundary safety proof (Theorem~\ref{th:safety}) depends only on the legacy engine actually
-satisfying its declared single-finalizer predicate during $[h_{\mathrm{d}},h_{\mathrm{c}})$; it does
-not silently upgrade PoA's guarantee. We make this dependence explicit rather than implying
-Byzantine safety that a plain PoA deployment does not provide, and the shadow engine's independent
-re-execution (below) is an additional detection surface in either reading.
+not to equivocate, then during dual-run SAGE inherits that crash-fault model; the single corruption
+set remains bounded by $f\le\min(f_1,f_2)$. (ii) \emph{Byzantine legacy model}: if authority equivocation
+must be tolerated, the legacy engine must either enforce non-equivocation for every authority key
+(e.g.\ attested append-only key custody) or require a finalization quorum $q_1$ satisfying
+$2q_1-n>f_1$. A bare $\lfloor n/2\rfloor+1$ signature quorum is insufficient because two such
+quorums can intersect only in Byzantine signers. The evaluated legacy phase assumes PoA authorities do not equivocate. Byzantine-safe legacy
+operation requires an external non-equivocation mechanism or a stronger legacy quorum, neither
+implemented here. The conditional cross-boundary argument therefore requires the legacy engine to
+satisfy its declared single-finalizer predicate during $[h_{\mathrm d},h_{\mathrm c})$.
 
-\emph{On the degraded-threshold window.} Adopting $f=\min(f_1,f_2)$ means that during dual-run
-the network's safety is bounded by the weaker legacy engine, and one might ask whether SAGE
-introduces a new vulnerability here. It does not, for three reasons. First, the exposure is the
-legacy engine's \emph{pre-existing} bound: a chain already running on $\mathcal{C}_1$ tolerates at
+\emph{Degraded-threshold window.} During dual-run, safety is bounded by the weaker legacy engine.
+This is the legacy chain's pre-existing bound: a chain already running on $\mathcal{C}_1$ tolerates at
 most $f_1$ faults at all times, so an adversary able to compromise more than $f_1$ PoA validators
 can already violate that chain's safety irrespective of any migration. SAGE adds no finalizing
-authority during dual-run, so it adds no new safety weakness beyond what the legacy deployment
-already carries. Second, the window is \emph{bounded and operator-controlled}: it spans only
+authority during dual-run. The window is also \emph{bounded and operator-controlled}: it spans only
 $[h_{\mathrm{d}}, h_{\mathrm{c}})$, whose length is a governance parameter that can be made as short
-as the stability threshold $\kappa$ requires, so the degraded regime is a bounded time interval
-rather than a standing condition. Third, during exactly this window the target engine performs
+as the stability threshold $\kappa$ requires. During this window the target engine performs
 independent shadow validation of every block and recomputes its own root, which provides an
-\emph{additional} detection surface: a divergence introduced through partial PoA compromise that
-changes the executed state would surface as a shadow-root mismatch and prevent the readiness streak
-from advancing to a CutCert. SAGE therefore neither raises the fault bound it inherits from
-$\mathcal{C}_1$ nor prolongs it indefinitely, and it adds a check the legacy engine did not have. A
-full game-theoretic treatment of adversarial timing within the window is beyond our scope; we claim
-only the weaker and sufficient property that SAGE introduces no safety regression relative to the
-legacy engine it migrates.
+\emph{additional} detection surface for invalid or semantically incompatible execution. A
+well-formed malicious legacy block that both engines execute identically is not detected merely by
+matching shadow roots. SAGE therefore neither raises the fault bound it inherits from
+$\mathcal{C}_1$ nor prolongs it indefinitely. The analysis does not cover strategic compromise
+timing within this interval.
 
 \begin{table}[t]
 \centering
@@ -696,14 +395,14 @@ legacy engine it migrates.
 \label{tab:crypto}
 \renewcommand{\arraystretch}{1.15}
 \footnotesize
-\begin{tabular}{p{0.30\columnwidth}p{0.60\columnwidth}}
+\begin{tabular}{L{0.30\columnwidth}L{0.60\columnwidth}}
 \toprule
 Assumption & Underwrites \\
 \midrule
-Collision-resistant $\mathrm{root}(\cdot)$ and $\mathsf{H}$ & boundary-state binding; manifest tamper-evidence (Thm.~\ref{th:unforge}) \\
-EUF-CMA signatures ($n{-}f$ multi-signature) & manifest unforgeability and cutover-decision authenticity \\
-Chain-id and epoch binding & manifest replay resistance (Thm.~\ref{th:replay}) \\
-$n \ge 3f+1$ with $f=\min(f_1,f_2)$ & quorum intersection and decision uniqueness (Lem.~\ref{lem:qi}, Thm.~\ref{th:unique}) \\
+Collision-resistant $\mathrm{root}(\cdot)$ and $\mathsf{H}$ & boundary-state and complete-manifest binding (Thm.~\ref{th:unforge}) \\
+EUF-CMA signatures & CutCert, ManifestCertificate, AbortCert, and SealCert share authenticity \\
+Chain-id and epoch binding & boundary, envelope, and terminal-payload replay resistance (Thm.~\ref{th:replay}) \\
+$n \ge 3f+1$ in one identical migration committee & CutCert, ManifestCertificate, and terminal-certificate quorum intersection (Lem.~\ref{lem:qi}, Thms.~\ref{th:unique} and~\ref{th:unforge}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -712,11 +411,11 @@ $n \ge 3f+1$ with $f=\min(f_1,f_2)$ & quorum intersection and decision uniquenes
 \section{Threat Model and Abort Analysis}
 \label{sec:threat}
 
-The adversary controls up to $f=\min(f_1,f_2)$ Byzantine validators, may delay messages
-before GST, and may induce crashes and a network partition that straddles the cutover height.
-It cannot forge signatures or find collisions in $\mathrm{root}(\cdot)$ or the manifest hash
+Under the present theorem scope, one identical committee has at most $f$ Byzantine members;
+partitions and crashes are adversarially scheduled, and messages may be delayed before GST. The
+adversary cannot forge signatures or find collisions in $\mathrm{root}(\cdot)$ or the manifest hash
 $\mathsf{H}$. Fig.~\ref{fig:threat} places the attack surfaces on the migration timeline, and
-we analyze each one and its mitigation; Table~\ref{tab:abort} summarizes the abort triggers.
+Table~\ref{tab:abort} summarizes the component triggers and future coordination requirements.
 
 \begin{figure}[t]
 \centering
@@ -750,58 +449,54 @@ we analyze each one and its mitigation; Table~\ref{tab:abort} summarizes the abo
 \draw[atk] (9.2,1.3) -- (9.2,0.9);
 % mitigations below
 \node[mit, text=cbBlue] at (4.0,-0.85) {$n{-}f$ CutCert};
-\node[mit, text=cbBlue] at (7.0,-0.85) {rate-limited abort};
-\node[mit, text=cbBlue] at (9.2,-0.85) {$n{-}f$-signed $\mathcal{M}$};
+\node[mit, text=cbBlue] at (7.0,-0.85) {$n{-}f$ AbortCert};
+\node[mit, text=cbBlue] at (9.2,-0.85) {$n{-}f$ ManifestCert};
 \end{tikzpicture}}
-\caption{Attack surfaces across the migration timeline and their mitigations. Cutover safety
-rests on the $n-f$ CutCert (quorum intersection), reversibility on the multi-signed
-manifest, and liveness on a rate-limited abort path.}
+\caption{Attack surfaces across the migration timeline. The implemented evidence covers the
+$n-f$ CutCert gate, complete-manifest quorum acceptance, durable local manifest and terminal locks,
+certificate-gated Abort/Seal transitions, and a local restart-safe fence predicate. Full live-host
+fence deployment plus manifest and terminal-share dissemination remain open. A future per-epoch cap
+would limit accepted rollback cycles but would not guarantee terminal progress when no certificate
+forms.}
 \label{fig:threat}
 \end{figure}
 
-\emph{Partition at cutover.} A partition straddling $h_{\mathrm{c}}$ is the canonical way a
-flag-day fork arises: two sides each proceed on their own chain. SAGE neutralizes this because
-cutover requires an $n-f$ CutCert, and by quorum intersection (Lemma~\ref{lem:qi}) at most one
-partition side can assemble it; the other side keeps the legacy chain and adopts the CutCert
-after the partition heals. \emph{Byzantine false readiness.} A Byzantine validator may sign a
-readiness attestation for a height at which its local shadow check failed. Because a CutCert
-needs $n-f$ signatures and $f<n/3$, every CutCert contains at least $f+1$ correct signers, so
-the certified root equals the legacy-finalized root (Theorem~\ref{th:safety}).
-\emph{Griefing via the progress timeout.} A Byzantine coalition can stall $\mathcal{C}_2$ to
-trip the progress timeout $\tau$ and force a rollback, then repeat. SAGE bounds this by
-rate-limiting forced rollbacks to a constant $\rho$ per epoch and by requiring an $n-f$ AbortCert
-for a quorum-triggered abort, so $f$ validators cannot by themselves trigger the quorum path. The
-key point is that this is a bounded \emph{delay} of migration, not a denial of service to the chain:
-the legacy engine $\mathcal{C}_1$ remains the live finalizer until a cutover \emph{succeeds}, so a
-stalled target never halts block production---it only postpones the handoff. Proposition~\ref{prop:grief}
-bounds the wasted time per epoch. \emph{Manifest supply chain.} A
-malicious migration tool could emit a state that is internally consistent but wrong. The
-manifest binds the tool hash and is signed by $n{-}f$ validators that independently
-recompute the boundary root, so a single compromised tool cannot pass verification; we treat
-collusion of $f+1$ key holders as out of scope, consistent with the BFT bound.
+\emph{Partition at cutover.} The implemented $n-f$ gate prevents a side below threshold from
+activating target authority, so that side stalls locally. Under the identical-committee scope,
+quorum intersection permits at most one certified boundary tuple. Post-heal cutover convergence is
+observed in the five-seed multi-process campaign and same-region repetition in
+Section~\ref{sec:rq2}; reliable certificate retransmission and adoption under general schedules
+remain unimplemented. \emph{Byzantine false readiness.} In the one implemented equal-power committee, a CutCert
+has $n-f$ signatures and contains at least $f+1$ correct signers; the runtime additionally checks the
+certified boundary against its local committed tip. This CutCert-side property does not establish
+complete-manifest agreement by itself; the independent ManifestCertificate supplies that local
+acceptance rule. \emph{Progress griefing.} The component exposes local abort triggers
+and a deadline guard. It defines and verifies $n-f$ AbortCerts, durably locks each validator to one
+terminal payload, and gates rollback on the certificate. A future network protocol must disseminate
+and gather shares, coordinate a fresh legacy generation, and enforce any per-epoch retry cap. The
+accounting in Proposition~\ref{prop:grief} is conditional on those future mechanisms. \emph{Manifest supply
+chain.} In the manifest component verifier, the CutCert prevents a tool from changing the certified
+boundary root, while the independently verified ManifestCertificate binds the complete signing
+payload, including the tool hash and replay-context root. This is quorum agreement on the hash, not
+an endorsement that the tool is safe. Production deployment therefore still requires an allowlist
+or reproducible-build policy for acceptable tooling.
 
-\emph{Rollback replay mismatch (operator runbook).} By Corollary~\ref{cor:replay-liveness} a
-rollback is always \emph{safe} but is only \emph{clean} (automatic) when the discarded suffix
-satisfies Assumption~\ref{as:metadata}. When a suffix transaction violates that precondition, the
-deterministic replay onto $\mathcal{C}_1$ produces a divergent root that every correct validator
-detects (Lemma~\ref{lem:replay}) rather than committing silently. The prescribed operator response
-is then explicit and bounded: (i) the chain has already converged to the legacy-final state
-$S_{h_{\mathrm{c}}-1}$, so it is live and safe throughout; (ii) the detected-divergent transactions
-are surfaced (not silently dropped) and are re-submitted by their originators against the resumed
-legacy chain, exactly as an ordinary un-included transaction would be after any reorg; (iii) no
-absolutely-final block is affected, so no client that honored provisional finality observes a
-reversion. Thus the only cost of a non-admissible workload is that a fraction of the reversible
-window's transactions need re-submission rather than automatic replay---a liveness/convenience
-cost, never a safety one.
+\emph{Rollback replay mismatch.} The rollback component refuses incomplete or mismatched context
+while retaining the anchor, and the controller rejects rollback without a valid $n-f$ AbortCert.
+Network dissemination, committee-wide restoration, and client-visible recovery are not implemented.
+Root-equivalent replay remains conditional on Assumptions~\ref{as:exec}
+and~\ref{as:metadata}; a refused suffix requires application-specific operator recovery rather than
+acceptance of an unaudited state.
 
 \begin{table}[t]
 \centering
-\caption{Abort triggers, the adversary that can invoke each, and the resulting guarantee.}
+\caption{Abort-component triggers and coordination status. Local detection does not change
+authority; an $n-f$ AbortCert gates rollback, but network share dissemination is not implemented.}
 \label{tab:abort}
 \setlength{\tabcolsep}{4pt}
 \renewcommand{\arraystretch}{1.2}
 \footnotesize
-\begin{tabular}{p{0.27\columnwidth}p{0.30\columnwidth}p{0.30\columnwidth}}
+\begin{tabular}{L{0.27\columnwidth}L{0.30\columnwidth}L{0.30\columnwidth}}
 \toprule
 Trigger & Who can invoke & Guarantee \\
 \midrule
@@ -1093,7 +788,7 @@ Cross-chain / IBC actions on provisional state & Not SAGE's to replay & Integrat
 \end{algorithmic}
 \end{algorithm}
 
-\subsection{Design Rationale: Why Each Mechanism Is Necessary}
+\subsection{Design Rationale: Evidence for Individual Mechanisms}
 Each of SAGE's four mechanisms removes a specific failure that the others do not cover, and the
 evaluation in Section~\ref{sec:eval} treats these failures as falsifiable invariant checks.
 The \emph{single-finalizer dual-run} is what prevents two engines from ever both finalizing;
@@ -1396,7 +1091,8 @@ every block has $u(1)=0$.
 An earlier formulation modeled per-block detection as independent Bernoulli trials, giving
 $p_{\mathrm{div}}(1-q)^{\kappa}$. That model is inappropriate for deterministic state-machine
 replication: execution outcomes across blocks are correlated through shared state, not independent,
-and a triggered divergence is detected with certainty rather than probability $q$. We therefore state
+and a triggered divergence that changes the state root is detected deterministically rather than
+with an independent per-block probability $q$. We therefore state
 the residual risk as the coverage bound of Observation~\ref{th:detection} and treat the quantitative
 estimation of $u(\kappa)$ for a given workload as an empirical question requiring a latent-divergence
 injection campaign (Section~\ref{sec:eval}, RQ3), which we do not claim to resolve here.
@@ -1497,8 +1193,8 @@ testbed in which validators run as separate operating-system processes communica
 loopback TCP, which realizes the concurrent two-leader execution the serialized simulator cannot
 and therefore exhibits observed cross-boundary forks. The third is a bounded TLA+/TLC model check
 that exhaustively explores the controller's state space. The implemented simulator safety metric
-is an executable invariant over committed logs: two correct validators committing conflicting
-blocks at the same height would be reported as a violation. We compare
+is an executable invariant over committed logs: an observed difference between the finalized state
+roots reported by two correct validators at the same height would be reported as a violation. We compare
 four migration strategies, stop-the-world (STW), an uncoordinated hard fork (HF),
 reconfiguration only (RC), and SAGE, plus an ablation SAGE-BLIND that cuts over on schedule
 without a CutCert. The recorded metrics include finalized blocks, downtime blocks,
@@ -1587,14 +1283,15 @@ The $n{=}100$ entry is a SAGE-only simulator robustness sweep ($20$ trials/point
 multi-arm or real-host comparison.
 \end{table*}
 
-\emph{What each tier proves, and what it does not.} We state the scope of each tier up front to
-avoid conflating their evidence. The simulator provides \emph{breadth and reproducibility}: many
-seeds, parameter sweeps, and a deterministic, replayable safety invariant; it \emph{cannot} realize
-a concurrent two-leader fork, because it serializes one proposer per height, so a $0\%$ observed-fork
-rate in the simulator is a property of the model, not evidence of safety, and we never present it as
-such. The multi-process testbed provides \emph{realism of the safety claim}: real operating-system
-processes, real signatures, a genuine transport-level partition, and active Byzantine equivocation,
-so a fork can actually occur and is detected when it does; this tier is the headline safety evidence.
+\emph{What each tier supports, and what it does not.} We state the scope of each tier up front to
+avoid conflating their evidence. The simulator provides \emph{breadth and reproducibility}: seed and
+parameter sweeps plus a deterministic, replayable invariant. It \emph{cannot} realize a concurrent
+two-leader fork because it serializes one proposer per height; therefore, zero observed state-root
+conflicts in this simulator are a property of the model and not evidence of partition safety. The multi-process testbed shows the implementation can realize and detect concurrent
+finalized-state-root conflicts: separate operating-system processes, real signatures, an applied
+transport-level partition, and active Byzantine equivocation allow such a conflict to occur and be
+observed. This tier supplies conformance evidence under specified schedules rather than proving the
+universal theorem.
 The multi-process testbed has two sub-tiers: a single-machine loopback deployment that supplies the
 statistically repeated differential ($0/20$ vs $20/20$), and a real multi-host deployment on six
 independent cloud VMs (one validator per host, real TCP) that reproduces the same differential
@@ -1770,14 +1467,16 @@ lacks SAGE's $n{-}f$ dual-run cutover gate.
 \end{table}
 
 \subsection{RQ2: Adversarial Safety (Falsifiable)}
-The central correctness claim remains falsifiable: a partitioned run that produces conflicting
-commits would violate the executable safety invariant. We report two distinct quantities and are
-careful not to conflate them. The first is the \emph{observed} fork rate: the fraction of trials
-in which two distinct blocks finalize at the same height (the executable invariant). The second
-is the \emph{disjoint-quorum exposure rate}: the fraction of trials in which a non-CutCert
+\label{sec:rq2}
+The central correctness claim remains falsifiable: a partitioned run in which correct validators
+report distinct finalized state roots at the same height would violate the executable safety
+invariant. We report two distinct quantities and do not conflate them. The first is the
+\emph{observed state-root-conflict fraction}: the fraction of trials in which distinct finalized
+state roots are observed at the same height. The second
+is the \emph{disjoint-quorum exposure fraction}: the fraction of trials in which a non-CutCert
 cutover leaves both partition sides simultaneously holding $\ge$ BFT quorum ($2f{+}1$), so that
-the target engine \emph{could} finalize conflicting blocks on each side. Exposure is a structural
-precondition for a flag-day fork; an observed fork is its realization.
+conflicting finalization is structurally possible. Exposure is a precondition, not an observed
+violation.
 
 The simulator exposure matrix uses $n{=}10$, $f{=}2$ (BFT quorum $5$), three split sizes
 $\{2,3,5\}$, two partition durations, and fifteen seeds per cell; the partition begins exactly at
@@ -2036,6 +1735,25 @@ $3/3$ partition, WAN & Hard fork (blind)   & state-level fork at $h_{\mathrm{c}}
 \end{tabular}
 \end{table*}
 
+\paragraph{Both safe endpoints of the threshold interval.}
+Under a balanced partition at the cutover height, both safe quorum endpoints recorded the same
+outcome: zero forks and zero completed migrations in every trial. The control campaign fixes $n=6$
+and $f=1$, engages a balanced $3/3$ socket-layer partition at the cutover height $h_c$, and runs the
+multi-process testbed with real Ed25519 signatures over loopback TCP. Verdicts are read from observed
+finalized \texttt{state\_root} values rather than from process exit codes. SAGE at $q=n-f=5$ recorded
+$0/20$ forked and $0/20$ migrated, and the interval minimum at
+$q=\lfloor (n+f)/2\rfloor+1=4$ recorded the same $0/20$ and $0/20$. The unsafe control at $q=2f+1=3$
+forked in $20/20$ trials and migrated in $20/20$ trials under the identical schedule. That positive
+arm is what demonstrates the fork detector emitted positive verdicts on this workload, so the two
+$0/20$ results are not an artifact of a detector that never fires. Under partition, a migration count
+of zero denotes a safety-preserving stall rather than a completed cutover. Without an induced fault,
+both safe arms migrated in $20/20$ trials with zero forks, which shows neither threshold merely
+refuses to act. No trial was inconclusive. This is a fixed-schedule conformance campaign rather than
+a sample of an operational fork distribution, so the reported counts do not license inference about a
+population proportion. The outcome is consistent with Lemma~\ref{lem:necessity}, which is the sole
+basis for the claim that $n-f$ is conservative rather than required; the campaign itself establishes
+no necessity result.
+
 \subsection{RQ3: Shadow Anchoring Ablation}
 Fig.~\ref{fig:ablation} isolates the stability threshold $\kappa$. The ablation sweeps
 $\kappa\in\{1,2,4,8,16\}$ with $20$ seeds per setting and observes zero unsafe cutovers in all
@@ -2194,13 +1912,109 @@ report for the message-complexity sweep. This tier is \emph{local real-process} 
 OS processes, real loopback TCP, software-injected delay), not independent-host and not physical
 geo; the six-VM tier remains the independent-host evidence.
 
+\subsection{Crash Restart and Boundary-Spanning Catch-Up}
+\label{sec:crash-recovery}
+A validator killed mid-run and relaunched from its own durable store closes the accumulated height
+gap without leaving a hole in its committed record. Across the three real-host campaigns reported
+here, the recovered node's committed sequence contains zero holes in every run that produced a
+record. The first campaign passes all four acceptance gates in four of five seeds; the
+boundary-spanning campaign passes three of five; the follow-up boundary-spanning campaign passes
+five of five with zero holes. The failures are reported below, and neither is a catch-up defect.
+
+Each campaign runs six validators on six real cloud hosts with $n=6$ and $f=1$. All six hosts sit in
+one cloud region and one availability domain, so the evidence covers independent kernels and real
+transport, not geographic distribution. Validator~5 is killed twenty seconds into the run and
+relaunched after a six-second delay from its own store. Runs are bounded by wall clock rather than by
+a target height. Verdicts come from an offline verifier reading the raw per-validator records, never
+from the runner's inline summary.
+
+Four fail-closed gates decide each run. G0 (liveness) requires a result from every expected
+validator, and treats an absent or zero-byte record as a failure rather than a skip. G1 (contiguity)
+requires that no validator's committed sequence contain a hole, which prevents a high maximum height
+over a defective record from being read as catch-up. G2 (agreement) requires that no two validators
+report differing finalized \texttt{state\_root} values at a shared height; comparison is on finalized
+state roots only, never on engine-tagged block hashes. G3 (catch-up) requires the recovered node to
+land within the committee's own observed height spread of the survivor maximum.
+
+G3's tolerance is derived from measured behavior of the healthy system. Because a wall-clock deadline
+cuts every run mid-round, the surviving validators are not height-synchronized among themselves:
+across the twenty-two retained runs they differ in sixteen, by as much as three heights. A tolerance
+of zero would therefore hold the recovered node to a standard that no validator in the run meets, and
+would classify a one-height deadline race as a catch-up failure. The gate retains its discriminating
+power under the observed-spread tolerance: the stalls in this corpus are deficits of $678$ and $689$
+heights, and a height held only by the recovered node below the survivor maximum still fails.
+
+In the first campaign the recovered node reaches heights $1296$, $1298$, $1304$, $1297$, and $1293$
+against survivor maxima of $1296$, $1297$, $1304$, $1295$, and $1293$, with survivor spreads of one,
+two, three, zero, and one height. Seed~45 fails, and the failure is retained rather than dropped. It
+fails G0 because one surviving validator produced no result: that validator died on a pre-existing
+pacemaker fault reported as \emph{future-view proposal requires a justify QC}, which appears in the
+pre-review corpus and lies in the standalone HotStuff engine rather than in the catch-up path. The
+verifier additionally fails G3 on that seed because the recovered node stood two heights above every
+reporting survivor, a condition the gate refuses rather than rounds away. Total holes are zero in all
+five seeds, including the failing one.
+
+The first campaign schedules the cutover at height~4 while the crash fires near height~214, so the
+recovered node's gap lies entirely above the migration boundary. The boundary-spanning campaigns
+place the cutover at height~260, inside the crash window, so the recovered node must adopt a legacy
+prefix, arm the pending boundary, and cross through the ordinary quorum-gated path. The first such
+campaign passes three of five seeds: seed~92 misses by one height at the deadline with a measured
+committee spread of zero, and seed~91 lost the recovered node to a distinct pre-existing fault in the
+restart path's quorum-certificate resolution. G1 and G2 pass in all five seeds. The follow-up
+campaign, run after the block commit and its replay-context extension were made one atomic store
+transition, passes five of five seeds with zero holes, zero state-root conflicts, and a recorded
+crossing at height~260 in every run.
+
+The five-of-five result must not be attributed to the atomicity change. Neither prior failure is one
+that atomicity addresses: one was a wall-clock deadline race and the other the pre-existing
+quorum-certificate fault. The window the change does close requires a crash landing between two
+specific durable writes, which no run in either campaign is known to have hit. The honest reading is
+that the change introduced no regression and that this campaign avoided both known faults. Two
+further limits bound the interpretation. The synthetic workload is state-root neutral within an
+epoch, so G2's passes carry no evidence about same-epoch divergence, and G1 together with G3 carries
+the result. The production catch-up entry point is exercised only by these real-host campaigns,
+because no end-to-end transport fixture yet drives it under test.
+
+\subsection{Post-Heal Convergence After a Sustained Partition}
+\label{subsec:partition-heal}
+All five seeds reconverged after the partition healed, with zero observed forks and all six
+validators resumed. The campaign, driven by
+\texttt{scripts/m9\_partition\_heal\_convergence.sh}, fixes $n=6$ and $f=1$, engages a balanced
+$3/3$ socket-layer partition at height~4, holds it, then clears the blocked-peer set and restores the
+full configured mesh.
+
+The hold must be clock-driven rather than height-driven. A partition is precisely the condition under
+which height stops advancing, so a heal trigger placed above the partition height is unreachable and
+degenerates to healing at the partition height on the next run-loop tick. Under that superseded
+trigger the measured isolation windows were $1.9$--$14.8$\,ms against a $2$\,s view timeout, which is
+below $0.75\%$ of a single timeout. No round failed and no view advanced, so those runs measured an
+engage-and-heal pair rather than partition recovery, and they are not cited as convergence evidence.
+The campaign verifier now recomputes each window from retained \texttt{partition\_engaged} and
+\texttt{partition\_healed} timestamps and rejects any run whose measured window cannot span a full
+view timeout.
+
+With the hold set to three view timeouts via \texttt{-{}-heal-after-ms}, the recomputed minimum
+isolation window is $6000.0$\,ms across all thirty retained validator records, or $3.00\times$ the
+view timeout. Every seed reports no fork and convergence: all six validators re-established the mesh,
+all reported the heal marker, and all finalized past the partition boundary, reaching a converged
+height of~8 or~9 depending on seed. Convergence requires that no observed height carry more than one
+finalized \texttt{state\_root}, evaluated by the same fork detector used in
+Section~\ref{sec:rq2}. A same-region real-host repetition reproduces the result with a measured
+window of $6000.0$--$6009.7$\,ms and convergence on all six hosts.
+
+This evidence is single-box loopback and same-region deployment over real TCP sockets, not a physical
+multi-region or geo-WAN campaign. The defensible statement is that the measured isolation window
+spans three view timeouts; physical geo-WAN post-heal validation remains future work.
+
 \subsection{Serialized Partition Safety Regression}
 Theorem~\ref{th:termination} predicts that a partition straddling the cutover height delays
 the transition until the partition heals but never loses safety. The serialized termination
-sweep (partition durations $\{2,4,6,8,12,16,24\}$ blocks at a
-balanced split, $20$ seeds each, for both SAGE and hard fork) confirms the \emph{safety} half of
-this directly: across all $280$ runs no strategy and no duration produces a safety violation
-(Fig.~\ref{fig:termination}). We deliberately do not present this sweep as liveness evidence.
+sweep uses partition durations $\{2,4,6,8,12,16,24\}$ blocks at a
+balanced split, $20$ seeds each, for both SAGE and hard fork. No finalized-state-root conflict is
+observed in any of the $280$ runs (Fig.~\ref{fig:termination}). Because this serialized harness
+cannot realize concurrent cross-process partition forks, that outcome is a conformance regression
+of the serialized model rather than direct evidence of partition safety, and we do not present it
+as liveness evidence either.
 Under the balanced cutover-straddling partition the serialized simulator stalls at the boundary
 and does not finalize past roughly height $13$ of $30$ within the event budget, for every duration,
 so the predicted ``resume after heal'' behavior is not exhibited here. This is the same limitation
@@ -2675,9 +2489,9 @@ the separate \texttt{tc netem} harness adds kernel-level delay, jitter, and loss
 loopback but still runs on one machine. We have additionally reproduced both the no-fault
 migration and the partition fork differential on six independent cloud hosts, one validator per
 machine over real TCP (Table~\ref{tab:multihost}), which removes the shared-kernel and
-shared-clock abstraction for the safety claim; that tier confirms SAGE forks in none of five
+shared-clock abstraction for the safety claim; that tier records SAGE forking in none of five
 repeated partitioned runs ($0/5$) while the blind control forks in every one ($5/5$), each a
-verified state-level fork, and the differential further held under an injected $\approx 104$\,ms
+verified state-root conflict, and the differential further held under an injected $\approx 104$\,ms
 inter-VM RTT ($0/3$ vs $3/3$), so it is not an artifact of near-zero same-region latency. The
 real-host tier is now also instrumented for committed throughput and finalization-latency
 distributions (Table~\ref{tab:tpshost}) and scaled to $n{=}12$ (two validators per host across the
@@ -3025,11 +2839,6 @@ consensus,'' arXiv:1807.04938, 2019.
 system for permissioned blockchains,'' in \emph{Proc. ACM European Conf. Computer Systems
 (EuroSys)}, 2018, pp. 1--15.
 
-\bibitem{blockstm} R.~Gelashvili, A.~Spiegelman, Z.~Xiang, G.~Danezis, Z.~Li, D.~Malkhi, Y.~Xia,
-and R.~Zhou, ``Block-STM: Scaling blockchain execution by turning ordering curse to a performance
-blessing,'' in \emph{Proc. ACM SIGPLAN Symp. Principles and Practice of Parallel Programming
-(PPoPP)}, 2023, pp. 232--244.
-
 \bibitem{suilutris} S.~Blackshear, A.~Chursin, G.~Danezis, A.~Kichidis, L.~Kokoris-Kogias, X.~Li,
 M.~Logan, A.~Menon, T.~Nowacki, A.~Sonnino, B.~Williams, and L.~Zhang, ``Sui Lutris: A blockchain
 combining broadcast and consensus,'' in \emph{Proc. ACM SIGSAC Conf. Computer and Communications
@@ -3047,9 +2856,6 @@ arXiv:2007.01560, 2020.
 \bibitem{tenderbake} L.~A\c{s}tefanoaei, P.~Chambart, A.~Del~Pozzo, T.~Rieutord, S.~Tucci, and
 E.~Z\u{a}linescu, ``Tenderbake: A solution to dynamic repeated consensus for blockchains,'' in
 \emph{Proc. Int. Conf. Advances in Financial Technologies (AFT)}, 2021.
-
-\bibitem{flexbft} D.~Malkhi, K.~Nayak, and L.~Ren, ``Flexible Byzantine fault tolerance,'' in
-\emph{Proc. ACM SIGSAC Conf. Computer and Communications Security (CCS)}, 2019, pp. 1041--1053.
 
 \bibitem{cox} Z.~Li, L.~Cai, W.~Qiu, F.~Huang, H.~Duan, and C.~Yuan, ``Cox: A reliable runtime
 switching protocol for BFT consensus algorithms,'' \emph{Blockchain: Research and Applications},
@@ -3095,9 +2901,6 @@ synchrony,'' \emph{Journal of the ACM}, vol. 35, no. 2, pp. 288--323, 1988.
 consensus with one faulty process,'' \emph{Journal of the ACM}, vol. 32, no. 2, pp. 374--382,
 1985.
 
-\bibitem{paxos} L.~Lamport, ``Paxos made simple,'' \emph{ACM SIGACT News}, vol. 32, no. 4,
-pp. 51--58, 2001.
-
 \bibitem{raft} D.~Ongaro and J.~Ousterhout, ``In search of an understandable consensus
 algorithm,'' in \emph{Proc. USENIX Annual Technical Conf. (ATC)}, 2014, pp. 305--319.
 
@@ -3107,11 +2910,6 @@ algorithm,'' in \emph{Proc. USENIX Annual Technical Conf. (ATC)}, 2014, pp. 305-
 \bibitem{bftsmart} A.~Bessani, J.~Sousa, and E.~E.~P.~Alchieri, ``State machine replication for
 the masses with BFT-SMaRt,'' in \emph{Proc. IEEE/IFIP Int. Conf. Dependable Systems and Networks
 (DSN)}, 2014, pp. 355--362.
-
-\bibitem{bitcoin} S.~Nakamoto, ``Bitcoin: A peer-to-peer electronic cash system,'' 2008.
-
-\bibitem{nistpqc} National Institute of Standards and Technology, ``Module-lattice-based
-key-encapsulation and digital signature standards (FIPS 203, 204, 205),'' 2024.
 
 \bibitem{adachain} C.~Wu, B.~Mehta, M.~J.~Amiri, R.~Marcus, and B.~T.~Loo, ``AdaChain: A learned
 adaptive blockchain,'' \emph{Proc. VLDB Endowment}, vol. 16, no. 8, pp. 2033--2046, 2023,
@@ -3130,6 +2928,32 @@ Networking (ICOIN)}, 2026, pp.~685--690, paper P3-16, IEEE 979-8-3315-7896-1/26.
 adaptive consensus optimisation for blockchain networks,'' \emph{Scientific Reports}, vol. 16,
 art. 2158, 2026, doi:10.1038/s41598-025-31929-8. Open access. Available:
 \url{https://www.nature.com/articles/s41598-025-31929-8}
+\bibitem{bftbrain} H.~Zhang, S.~Duan, C.~Liu, B.~Zhao, X.~Meng, S.~Liu, Y.~Yu, F.~Zhang, and
+L.~Zhu, ``BFTBrain: Adaptive BFT consensus with reinforcement learning,'' in \emph{Proc. 22nd
+USENIX Symp. Networked Systems Design and Implementation (NSDI)}, 2025.
+
+\bibitem{shoalpp} B.~Arun, Z.~Li, F.~Suri-Payer, S.~Das, and A.~Spiegelman, ``Shoal++: High
+throughput DAG BFT can be fast and robust!'' in \emph{Proc. 22nd USENIX Symp. Networked Systems
+Design and Implementation (NSDI)}, 2025.
+
+\bibitem{ethereummerge} Ethereum Foundation, ``The Merge,'' Ethereum documentation, 2022.
+[Online]. Available: https://ethereum.org/en/roadmap/merge/
+
+\bibitem{eip3675} M.~Kalinin, D.~Ryan, and V.~Buterin, ``EIP-3675: Upgrade consensus to
+proof-of-stake,'' Ethereum Improvement Proposals, 2021. [Online]. Available:
+https://eips.ethereum.org/EIPS/eip-3675
+
+\bibitem{prime} G.~S.~Veronese, M.~Correia, A.~N.~Bessani, and L.~C.~Lung, ``Spin one's wheels?
+Byzantine fault tolerance with a spinning primary,'' in \emph{Proc. IEEE Int. Symp. Reliable
+Distributed Systems (SRDS)}, 2009.
+
+\bibitem{aardvark} A.~Clement, E.~L.~Wong, L.~Alvisi, M.~Dahlin, and M.~Marchetti, ``Making
+Byzantine fault tolerant systems tolerate Byzantine faults,'' in \emph{Proc. USENIX Symp.
+Networked Systems Design and Implementation (NSDI)}, 2009, pp.~153--168.
+
+\bibitem{rbft} P.-L.~Aublin, S.~B.~Mokhtar, and V.~Qu\'ema, ``RBFT: Redundant Byzantine fault
+tolerance,'' in \emph{Proc. IEEE Int. Conf. Distributed Computing Systems (ICDCS)}, 2013.
+
 \end{thebibliography}
 
 \end{document}
