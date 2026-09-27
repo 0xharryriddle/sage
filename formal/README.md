@@ -22,6 +22,9 @@ shows the safety property holds *exhaustively* over the bounded state space.
 | `SageRollback.tla` | Two-tier-finality rollback LTS: abort (guard `g_2`) discards only the provisional suffix; `AllowAbsoluteReversion` toggles faithful (FALSE) vs broken control (TRUE). |
 | `SageRollback.cfg` | Faithful rollback config. Must HOLD (`NoAbsoluteReversion` + `ProvisionalBounded`). |
 | `SageRollbackBroken.cfg` | Broken control (reverts an absolute block). Must FAIL with a `NoAbsoluteReversion` counterexample. |
+| `SageDistinctCommittee.tla` | Standalone bounded decision model with separate migration and target committees; not part of `run_tlc.sh`. |
+| `SageDistinctCommittee_partial.cfg`, `SageDistinctCommittee_disjoint.cfg` | Joint-threshold checks for partial overlap (4 migration / 5 target, 2 shared) and disjoint committees (4 / 4, none shared). |
+| `SageDistinctCommitteeBroken.cfg` | Target-only threshold control: six migration members, four target members, two shared; a 3/3 split can form conflicting migration-side certificates. |
 | `run_tlc.sh` | Runs all configs and asserts the expected verdicts. CI gate. |
 | `tla2tools.jar` | TLC 2.19 (vendored so the check is self-contained). |
 
@@ -33,6 +36,34 @@ bash formal/run_tlc.sh
 
 Requires `java` (tested on OpenJDK 21). Each faithful config explores all
 partition splits; n=10 is ~3.4M distinct states (~27s on 4 workers).
+
+### Separate distinct-committee model
+
+Run each check from the repository root, with Java and the vendored TLC jar:
+
+```bash
+for cfg in SageDistinctCommittee_partial.cfg SageDistinctCommittee_disjoint.cfg SageDistinctCommitteeBroken.cfg; do
+  java -Xmx2g -cp formal/tla2tools.jar tlc2.TLC -workers 4 -deadlock \
+    -config "formal/$cfg" formal/SageDistinctCommittee.tla
+done
+```
+
+These configs check `TypeOK`, target-side boundary `Safety`, and
+`DecisionUniqueness`. The first two are intended to exhaust without invariant
+violations; the target-only threshold control is intended to yield a
+`DecisionUniqueness` or `Safety` counterexample, rather than a clean verdict.
+Inspect each TLC result independently: the loop does not assert verdicts or
+replace the existing `run_tlc.sh` gate. No verdict is claimed here without a
+completed TLC run.
+
+This is a bounded **decision abstraction**, not a distinct-committee runtime
+implementation, proof for arbitrary sizes, or deployment authorization. TLC
+explores binary partition assignments at the configured sizes and overlap,
+with one readiness attestation per migration validator. It does not represent
+Byzantine double-signing, source-committee authority, per-engine consensus,
+certificate dissemination, fence/activation, or rollback. The joint threshold
+`max(NM-FM, NT-FT)` is tested for these configs only; this model does not
+establish that it suffices for the omitted protocol obligations.
 
 ## Property → paper-theorem mapping
 

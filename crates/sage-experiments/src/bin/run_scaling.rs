@@ -56,7 +56,16 @@ fn main() -> ExperimentResult<()> {
             cfg.simulation.seed = seed;
             cfg.validators.n = n;
             cfg.validators.f = f;
-            cfg.simulation.max_events = cfg.simulation.max_events.max(1_000_000);
+            // Event volume grows ~O(n^2) per height (all-to-all messaging), so
+            // the event budget must scale with n^2 or large-n runs falsely hit
+            // the cap before migrating. Budget = max(existing, c * n^2 * heights).
+            let heights = cfg.migration.h_r.get().max(cfg.simulation.max_height);
+            let scaled_budget = (n as u64)
+                .saturating_mul(n as u64)
+                .saturating_mul(heights)
+                .saturating_mul(8)
+                .max(1_000_000);
+            cfg.simulation.max_events = cfg.simulation.max_events.max(scaled_budget);
 
             let (status, metrics) = match Simulation::new(cfg) {
                 Ok(mut sim) => match sim.run() {
