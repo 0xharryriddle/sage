@@ -11,6 +11,14 @@ The documented design intent keeps the source engine as sole finalizer during sh
 - TLC checks are finite model checks for their configured systems. They are not an unbounded proof or complete Rust trace-refinement proof.
 - Experiment binaries may write under ignored `results/`; the process-testbed scripts also write per-run CSV files under `/tmp`. Neither location in this checkout contains retained historical evidence.
 
+This source-only branch was derived from a reviewed public base, not merged from
+the unpublished evidence branch. It includes standalone bounded design models
+and a CSV figure-data generator update. It deliberately excludes retained
+campaign outputs, sealed validator WALs, private machine inventories, generated
+provenance/archives, and Candidate Retry implementation pending independent
+exact-byte authorization. It cannot reproduce the omitted historical evidence;
+see `formal/README.md` for the added model checks and their limits.
+
 ## Quick start
 
 Requirements: Rust stable with Cargo, Java for TLC, and a POSIX shell for Make targets. `Cargo.toml` declares workspace edition 2021; no `rust-toolchain.toml` pin is included.

@@ -1,112 +1,91 @@
 # SAGE Bounded Model Check (TLA+ / TLC)
 
-This directory holds the bounded model-check artifact that backs the paper's
-claim (App. `app:spec`):
-
-> "A bounded-model check over n ∈ {4,7,10} and all partition splits of the
-> cutover window reproduces I and the rollback property."
-
-It closes **Path A item 2** in `docs/reviews/PUBLISHABILITY_ASSESSMENT.md` (the
-"machine-checked (bounded)" wording, blocker P0-1) and complements the
-multi-process observed-fork testbed (`scripts/m3_partition_experiment.sh`,
-Path A item 1). The empirical testbed shows a *real* fork; this model check
-shows the safety property holds *exhaustively* over the bounded state space.
+This directory contains finite decision and authority *design abstractions*, not
+an end-to-end runtime proof. `Sage.tla` checks target-side boundary agreement
+under an **assumed** old-generation fence. Separate `SageFence.tla`,
+`ManifestAgreement.tla`, `SageRollback.tla`, and `SageReadinessLock.tla`
+explore narrower obligations; combining their verdicts is not a refinement
+proof or authority to execute a migration, activation, or Candidate Retry.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `Sage.tla` | Controller LTS: dual-run → quorum-gated cutover under a binary partition. One `QuorumGated` constant toggles faithful (TRUE) vs blind control (FALSE). |
-| `Sage_n4.cfg`, `Sage_n7.cfg`, `Sage_n10.cfg` | Faithful configs (`QuorumGated=TRUE`). Must HOLD. |
-| `SageBlind_n4.cfg`, `SageBlind_n7.cfg` | Blind control (`QuorumGated=FALSE`, no quorum gate). Must FAIL with a Safety counterexample. |
-| `SageRollback.tla` | Two-tier-finality rollback LTS: abort (guard `g_2`) discards only the provisional suffix; `AllowAbsoluteReversion` toggles faithful (FALSE) vs broken control (TRUE). |
-| `SageRollback.cfg` | Faithful rollback config. Must HOLD (`NoAbsoluteReversion` + `ProvisionalBounded`). |
-| `SageRollbackBroken.cfg` | Broken control (reverts an absolute block). Must FAIL with a `NoAbsoluteReversion` counterexample. |
-| `SageDistinctCommittee.tla` | Standalone bounded decision model with separate migration and target committees; not part of `run_tlc.sh`. |
-| `SageDistinctCommittee_partial.cfg`, `SageDistinctCommittee_disjoint.cfg` | Joint-threshold checks for partial overlap (4 migration / 5 target, 2 shared) and disjoint committees (4 / 4, none shared). |
-| `SageDistinctCommitteeBroken.cfg` | Target-only threshold control: six migration members, four target members, two shared; a 3/3 split can form conflicting migration-side certificates. |
-| `run_tlc.sh` | Runs all configs and asserts the expected verdicts. CI gate. |
-| `tla2tools.jar` | TLC 2.19 (vendored so the check is self-contained). |
+| `Sage.tla`, `Sage_n{4,7,10}.cfg`, `SageBlind_n{4,7}.cfg` | Binary-partition decision abstraction under an assumed legacy fence; faithful HOLD, blind `Safety` counterexample. |
+| `SageDistinctCommittee.tla`, `SageDistinctCommittee_{partial,disjoint}.cfg`, `SageDistinctCommitteeBroken.cfg` | Fixed partial/disjoint migration and target committee layouts. Joint-threshold HOLD; target-only threshold counterexample. Decision abstraction only. |
+| `ManifestAgreement.tla`, `ManifestAgreement.cfg`, `ManifestAgreementBroken.cfg` | One n=4/f=1 epoch, full-payload n−f manifest share agreement HOLD; Byzantine single-producer authentication control violates `CompleteManifestAgreement`. |
+| `SageFence.tla`, `SageFence_n{4,5}.cfg`, `SageFenceSplit_n4.cfg`, `SageFenceShareEarly.cfg`, `SageFenceUngated.cfg` | Partial-delivery cross-engine authority design model; n=4/5 admitted HOLD; inadmissible source quorum, premature share, CutCert-only activation controls violate named invariants. |
+| `SageRollback.tla`, `SageRollback.cfg`, `SageRollbackBroken.cfg`, `SageRollbackBadCtx.cfg`, `SageRollbackUncertifiedSeal.cfg` | Certificate-gated abort/seal and local replay restoration; faithful HOLD, three separate broken controls. |
+| `SageReadinessLock.tla`, its five configs, `check_readiness_lock.sh` | Independent n=4/f=1 Rule 1 design check: faithful HOLD; early-share and restart-bypass controls; two positive reachability witnesses. Not a retry model. |
+| `run_tlc.sh` | Historical legacy decision/rollback runner only. Not modified here; it removes `formal/states/` on exit. Do **not** use it in a checkout that retains that directory. |
+| `tla2tools.jar` | Vendored TLC 2.19. |
 
-## Run
+## Verification (from the repository root)
 
-```bash
-bash formal/run_tlc.sh
-```
-
-Requires `java` (tested on OpenJDK 21). Each faithful config explores all
-partition splits; n=10 is ~3.4M distinct states (~27s on 4 workers).
-
-### Separate distinct-committee model
-
-Run each check from the repository root, with Java and the vendored TLC jar:
+Requires Java and the vendored TLC jar. Run directly from the repository root,
+with fresh isolated metadata outside `formal/states/`, and inspect each TLC
+exit code and named invariant. For example, the complete-manifest HOLD and
+single-producer control are:
 
 ```bash
-for cfg in SageDistinctCommittee_partial.cfg SageDistinctCommittee_disjoint.cfg SageDistinctCommitteeBroken.cfg; do
-  java -Xmx2g -cp formal/tla2tools.jar tlc2.TLC -workers 4 -deadlock \
-    -config "formal/$cfg" formal/SageDistinctCommittee.tla
-done
+java -Xmx2g -cp formal/tla2tools.jar tlc2.TLC -workers 4 -deadlock \
+  -metadir "$(mktemp -d)" -config formal/ManifestAgreement.cfg formal/ManifestAgreement.tla
+java -Xmx2g -cp formal/tla2tools.jar tlc2.TLC -workers 4 -deadlock \
+  -metadir "$(mktemp -d)" -config formal/ManifestAgreementBroken.cfg formal/ManifestAgreement.tla
 ```
 
-These configs check `TypeOK`, target-side boundary `Safety`, and
-`DecisionUniqueness`. The first two are intended to exhaust without invariant
-violations; the target-only threshold control is intended to yield a
-`DecisionUniqueness` or `Safety` counterexample, rather than a clean verdict.
-Inspect each TLC result independently: the loop does not assert verdicts or
-replace the existing `run_tlc.sh` gate. No verdict is claimed here without a
-completed TLC run.
+The faithful config must print `No error has been found`; the broken config
+must report `Invariant CompleteManifestAgreement is violated`. The temporary
+directories are not in the repository; remove only directories you created
+after inspecting the verdict. The same invocation pattern, with the indicated
+model and config, applies to:
 
-This is a bounded **decision abstraction**, not a distinct-committee runtime
-implementation, proof for arbitrary sizes, or deployment authorization. TLC
-explores binary partition assignments at the configured sizes and overlap,
-with one readiness attestation per migration validator. It does not represent
-Byzantine double-signing, source-committee authority, per-engine consensus,
-certificate dissemination, fence/activation, or rollback. The joint threshold
-`max(NM-FM, NT-FT)` is tested for these configs only; this model does not
-establish that it suffices for the omitted protocol obligations.
-
-## Property → paper-theorem mapping
-
-| TLA+ property (`Sage.tla`) | Paper | Meaning |
+| Model | HOLD configs | Expected counterexample config → invariant |
 |---|---|---|
-| `Safety` (`Sage.tla`) | Thm. `th:safety` (Cross-boundary safety), invariant `I` | No two validators commit different boundary blocks. |
-| `DecisionUniqueness` (`Sage.tla`) | Thm. `th:unique` (Decision uniqueness) + Lem. `lem:qi` (Quorum intersection) | At most one side can form an (n−f) CutCert, because two disjoint (n−f) sets cannot both fit in n validators when n ≥ 3f+1. |
-| `NoAbsoluteReversion` (`SageRollback.tla`) | Thm. `th:rollback` (Rollback correctness) + `check_no_absolute_reversion` | An abort discards only the provisional suffix; no absolutely-final (legacy or sealed) block is ever reverted. |
-| `ProvisionalBounded` (`SageRollback.tla`) | two-tier finality model | Provisional blocks live only in [h_c, h_r) until the seal. |
+| `Sage.tla` | `Sage_n4.cfg`, `Sage_n7.cfg`, `Sage_n10.cfg` | `SageBlind_n4.cfg`, `SageBlind_n7.cfg` → `Safety` |
+| `SageDistinctCommittee.tla` | `SageDistinctCommittee_partial.cfg`, `SageDistinctCommittee_disjoint.cfg` | `SageDistinctCommitteeBroken.cfg` → `DecisionUniqueness` or `Safety` |
+| `SageFence.tla` | `SageFence_n4.cfg`, `SageFence_n5.cfg` | `SageFenceSplit_n4.cfg` → `NoResidualSourceAuthority`; `SageFenceShareEarly.cfg` → `FenceShareOrdering`; `SageFenceUngated.cfg` → `TargetActivationGated` |
+| `SageRollback.tla` | `SageRollback.cfg` | `SageRollbackBroken.cfg` → `NoAbsoluteReversion`; `SageRollbackBadCtx.cfg` → `ReplayContextFailClosed`; `SageRollbackUncertifiedSeal.cfg` → `NoUncertifiedAbsolutePromotion` |
 
-## Faithfulness (why this is not a vacuous pass)
+The separate Rule 1 runner checks its faithful HOLD, two named safety-control
+counterexamples, and two *intentional reachability* counterexamples:
 
-A formal model is worthless if it bakes in the property it claims to check. Two
-guards against that:
+```bash
+bash formal/check_readiness_lock.sh
+```
 
-1. **The model mirrors the implementation.** Cutover requires an (n−f) CutCert
-   formed from *same-side* readiness attestations — exactly what the runtime
-   `drive_quorum_cutover` counts (`crates/sage-node/src/lib.rs`) and what the
-   paper's CutCert definition requires. The partition drops cross-side messages
-   (a side only sees its own attestations), mirroring the socket-layer partition
-   the testbed engages via `Transport::partition_to`. Two sides committing
-   different boundary blocks is the exact observed fork the blind testbed control
-   produced.
+`NoCutCertAfterLockedRestart` and `NoSourceVoteBeforeLock` are intentionally
+false reachability probes; they are **not** safety failures. The runner uses
+temporary TLC metadata and fails on timeout, deadlock, parser error, or the
+wrong named verdict. The historical `run_tlc.sh` neither covers these new
+models nor safely preserves `formal/states/`; no new model is registered in
+that witnessed runner. None of these checks was executed merely by copying
+its source: report HOLD only after a completed direct TLC run.
 
-2. **Falsifiability via a blind control.** The *same* module with
-   `QuorumGated=FALSE` removes the quorum gate (a validator switches on its own
-   local readiness — the dead-quorum-gate behaviour the empirical M3 run exposed,
-   where SAGE forked 5/5 before the gate was wired in). TLC **must** report a
-   `Safety` counterexample for the blind control. If the blind control passed,
-   the check would be vacuous. `run_tlc.sh` asserts the blind control FAILS, so a
-   regression that accidentally made Safety trivially true would break the gate.
+## Scope and limitations
 
-## Scope and threats to validity
+- `Sage.tla` explores binary partitions for n ∈ {4,7,10} and assumes the old
+  generation cannot commit at the fixed boundary. `Safety` means target-side
+  boundary agreement only; it does not prove cross-engine safety by itself.
+- `SageDistinctCommittee.tla` explores binary assignments for *fixed* committee
+  sizes/overlaps and a single attestation per migration member. It does not
+  model Byzantine double-signing, availability, or runtime support for distinct
+  committees. The joint threshold is sufficient only in this abstraction.
+- `SageFence.tla` models fence knowledge and authority decisions under partial
+  delivery and crash/restart, not engine consensus or certificate dissemination.
+  The retained faithful configs are n=4/5; no n=7 faithful HOLD is claimed.
+- `ManifestAgreement.tla` models complete-payload shares and one-body adoption
+  in one n=4/f=1 epoch, not gossip or live convergence.
+- `SageRollback.tla` abstracts one agreed manifest identity, durable terminal
+  votes, authority rollback and local replay-context restoration. It assumes
+  certificates and fences as modeled; it does not implement their networking.
+- `SageReadinessLock.tla` models two complete candidate identities, one old
+  source block at the boundary+1, an atomic durable slot/stop, one crash and
+  reload, and Byzantine dual-domain actions. Its source quorum is *not* pooled
+  across blocks; no candidate unlock, timeout, retry, target activation, or
+  model-to-Rust refinement is represented.
 
-- **Bounded**, not a general proof: n ∈ {4,7,10}, f = ⌊(n−1)/3⌋, a binary
-  partition, and the cutover decision. This matches the paper's stated bounded
-  scope; a full inductive proof over all n remains future work (stated as such).
-- The model abstracts the *decision* layer (attestation → CutCert → switch). The
-  per-engine consensus safety of PoA and HotStuff is assumed (paper
-  Assumption `as:engines`), as in the proofs — the model checks the *boundary*,
-  which is SAGE's contribution.
-- Rollback safety (Thm. `th:rollback`) is checked by `SageRollback.tla` with an
-  explicit abort action (guard `g_2`) over the two-tier finality model, plus a
-  broken control (`AllowAbsoluteReversion=TRUE`) that TLC must catch. It is a
-  separate module rather than folded into `Sage.tla` to keep each module's state
-  space small and its property focused.
+All models are bounded safety/decision checks with deliberate falsifying
+controls, not a general theorem, execution clearance, or evidence of any
+Candidate Retry stage. No generated `formal/states/` dumps or test results are
+part of this source-only set.
