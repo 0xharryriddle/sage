@@ -1,7 +1,0 @@
-test_name,passed,message
-correct_manifest_passes,true,correct manifest verified
-wrong_chain_id_rejected,true,rejected: signature payload mismatch
-wrong_boundary_root_rejected,true,rejected: signature payload mismatch
-wrong_epoch_rejected,true,rejected: signature payload mismatch
-wrong_target_engine_rejected,true,rejected: signature payload mismatch
-replayed_manifest_rejected,true,rejected: manifest parent is not legacy-finalized

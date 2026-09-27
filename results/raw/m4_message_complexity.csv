@@ -1,8 +1,0 @@
-n,f,max_height,trial,migration_success,observed_fork,total_messages,per_round
-4,1,8,1,4,false,150,18
-7,2,8,1,7,false,474,59
-10,3,8,1,10,false,990,123
-13,4,8,1,13,false,1668,208
-16,5,8,1,16,false,2550,318
-19,6,8,1,19,false,3168,396
-22,7,8,1,15,false,5775,721

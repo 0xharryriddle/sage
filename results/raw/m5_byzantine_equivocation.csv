@@ -1,6 +1,0 @@
-run,n,f,h_c,byzantine_id,observed_fork,migration_success,total_messages
-1,7,2,4,0,false,7,642
-2,7,2,4,0,false,7,642
-3,7,2,4,0,false,7,642
-4,7,2,4,0,false,7,636
-5,7,2,4,0,false,7,684

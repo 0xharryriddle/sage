@@ -1,5 +1,0 @@
-strategy,trials,mean_downtime_ms,min_downtime_ms,max_downtime_ms
-Sage,30,0.1226,0.1140,0.1410
-StopTheWorld,30,8.1065,8.0890,8.1270
-HardFork,30,0.1226,0.1140,0.1410
-ReconfigOnly,30,0.1164,0.1100,0.1310

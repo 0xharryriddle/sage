@@ -1,29 +1,31 @@
-# LaTeX build byproducts
-/docs/*.aux
-/docs/*.log
-/docs/*.out
-/docs/*.fls
-/docs/*.fdb_latexmk
-/docs/*.synctex.gz
-/docs/paper/build/**
-!/docs/paper/build/.gitkeep
-
-# Rust/build outputs
+# Rust and generated build output
 /target/
 
-# Local environment files
+# Runtime experiment results are not part of this source artifact.
+/results/
+
+# Local inventories, credentials, and environment
+/config/hosts.txt
+/config/hosts_*.txt
+/config/secret/
 .env
 .env.*
 !.env.example
 
-# Private workspace context - not part of the public artifact
-/AGENTS.md
+# Manuscripts and research notes are excluded from this source artifact.
+/docs/paper.tex
+/docs/paper/
+/docs/paper.pre_merge_*.tex
+/docs/paper_modified_by_mentor.tex
+/docs/research/
+/docs/guides/experiment_guide.md
+
+# Private workspace and planning documentation
 /docs/README.md
-/docs/plans/**
-/docs/rebuttal/**
-/docs/reviews/**
-/docs/roadmap/**
-/docs/engineering/**
+/docs/plans/
+/docs/rebuttal/
+/docs/roadmap/
+/docs/engineering/
 /docs/*_PLAN.md
 /docs/experiment_guide.md
 /docs/journal_experiment_plan.md
@@ -32,9 +34,12 @@
 /docs/rust_implementation_plan.md
 /docs/PUBLISHABILITY_ASSESSMENT.md
 /docs/paper_artifact_alignment_review.md
-/reviews/**
+# Operator-local context
+/AGENTS.md
+/docs/reviews/
+/reviews/
 
-# Local tool scratch files
+# Local tool state
 /.codex/
 /.claude/
 /.cursor/
@@ -42,4 +47,8 @@
 /.mcp_agentmemory/
 /.graphify/
 /graphify/
+/.graphify_*
+/graphify-out/cache/
+/graphify-out/.graphify_python
+/graphify-out/.needs_update
 /**/.DS_Store

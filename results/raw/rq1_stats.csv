@@ -1,5 +1,0 @@
-metric,baseline,sage_mean,baseline_mean,u_statistic,p_value,rank_biserial,holm_adjusted_alpha,reject_null,n_sage,n_baseline
-downtime_micros,StopTheWorld,122.6,8106.466666666666,900.0,2.887423633524122e-11,1.0,0.0125,true,30,30
-downtime_micros,HardFork,122.6,122.6,450.0,0.9999999989999999,0.0,0.025,false,30,30
-downtime_micros,ReconfigOnly,122.6,116.43333333333334,750.5,8.890511894232844e-6,-0.6677777777777778,0.016666666666666666,true,30,30
-downtime_micros,CoxStyle,122.6,122.6,450.0,0.9999999989999999,0.0,0.05,false,30,30
