@@ -6,6 +6,29 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+fn ratio_ci(successes: usize, total: usize) -> (f64, f64) {
+    if total == 0 {
+        return (0.0, 1.0);
+    }
+    let z = 1.96_f64;
+    let n = total as f64;
+    let p = successes as f64 / n;
+    let denom = 1.0 + z * z / n;
+    let center = (p + z * z / (2.0 * n)) / denom;
+    let half = z * ((p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt()) / denom;
+    ((center - half).max(0.0), (center + half).min(1.0))
+}
+
+fn mean_min_max(values: &[f64]) -> (f64, f64, f64) {
+    if values.is_empty() {
+        return (0.0, 0.0, 0.0);
+    }
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    (mean, min, max)
+}
+
 #[derive(Parser)]
 struct Cli {
     #[arg(long, default_value = "results/raw")]
@@ -207,8 +230,14 @@ fn write_rq1_downtime(path: &Path, out_dir: &Path) -> Result<(), Box<dyn Error>>
     }
     let mut out =
         String::from("strategy,trials,mean_downtime_ms,min_downtime_ms,max_downtime_ms\n");
-    // Stable, paper-facing order.
-    for strategy in ["Sage", "StopTheWorld", "HardFork", "ReconfigOnly"] {
+    // Stable, paper-facing order; include the observed Cox-style baseline.
+    for strategy in [
+        "Sage",
+        "StopTheWorld",
+        "HardFork",
+        "ReconfigOnly",
+        "CoxStyle",
+    ] {
         if let Some(vals) = groups.get(strategy) {
             if vals.is_empty() {
                 continue;
@@ -246,13 +275,17 @@ fn write_rq2_fork_rate(path: &Path, out_dir: &Path) -> Result<(), Box<dyn Error>
         entry.0.push(r.safety_violation);
         entry.1.push(r.disjoint_quorum_windows > 0);
     }
-    let mut out = String::from("strategy,split,duration,trials,fork_rate,exposure_rate\n");
+    let mut out = String::from(
+        "strategy,split,duration,trials,fork_rate,fork_ci_low,fork_ci_high,exposure_rate,exposure_ci_low,exposure_ci_high\n",
+    );
     for ((strategy, split, duration), (forks, exposures)) in groups {
         let n = forks.len();
         let fork_count = forks.iter().filter(|v| **v).count();
         let exposure_count = exposures.iter().filter(|v| **v).count();
+        let (fork_low, fork_high) = ratio_ci(fork_count, n);
+        let (exposure_low, exposure_high) = ratio_ci(exposure_count, n);
         out.push_str(&format!(
-            "{strategy},{split},{duration},{},{:.4},{:.4}\n",
+            "{strategy},{split},{duration},{},{:.4},{fork_low:.4},{fork_high:.4},{:.4},{exposure_low:.4},{exposure_high:.4}\n",
             n,
             fork_count as f64 / n as f64,
             exposure_count as f64 / n as f64
@@ -268,20 +301,24 @@ fn write_rq3_ablation(path: &Path, out_dir: &Path) -> Result<(), Box<dyn Error>>
     for r in rows {
         groups.entry(r.kappa).or_default().push(r);
     }
-    let mut out =
-        String::from("kappa,trials,unsafe_rate,migration_rate,mean_cutover_latency_micros\n");
+    let mut out = String::from(
+        "kappa,trials,unsafe_rate,unsafe_ci_low,unsafe_ci_high,migration_rate,migration_ci_low,migration_ci_high,mean_cutover_latency_micros,min_cutover_latency_micros,max_cutover_latency_micros\n",
+    );
     for (k, vals) in groups {
-        let n = vals.len() as f64;
-        let unsafe_rate = vals.iter().filter(|r| r.safety_violation).count() as f64 / n;
-        let migration_rate = vals.iter().filter(|r| r.migration_success).count() as f64 / n;
+        let n = vals.len();
+        let unsafe_count = vals.iter().filter(|r| r.safety_violation).count();
+        let migration_count = vals.iter().filter(|r| r.migration_success).count();
+        let (unsafe_low, unsafe_high) = ratio_ci(unsafe_count, n);
+        let (migration_low, migration_high) = ratio_ci(migration_count, n);
         let lat: Vec<f64> = vals
             .iter()
             .map(|r| r.cutover_latency_micros as f64)
             .collect();
+        let (lat_mean, lat_min, lat_max) = mean_min_max(&lat);
         out.push_str(&format!(
-            "{k},{},{unsafe_rate:.4},{migration_rate:.4},{:.1}\n",
-            vals.len(),
-            mean(&lat)
+            "{k},{n},{:.4},{unsafe_low:.4},{unsafe_high:.4},{:.4},{migration_low:.4},{migration_high:.4},{lat_mean:.1},{lat_min:.1},{lat_max:.1}\n",
+            unsafe_count as f64 / n as f64,
+            migration_count as f64 / n as f64,
         ));
     }
     fs::write(out_dir.join("rq3_ablation.csv"), out)?;
@@ -393,20 +430,22 @@ fn write_scaling(path: &Path, out_dir: &Path) -> Result<(), Box<dyn Error>> {
     for r in rows {
         groups.entry(r.n).or_default().push(r);
     }
-    let mut out =
-        String::from("n,trials,mean_cutover_latency_micros,migration_rate,mean_finalized_blocks\n");
+    let mut out = String::from(
+        "n,trials,mean_cutover_latency_micros,min_cutover_latency_micros,max_cutover_latency_micros,migration_rate,migration_ci_low,migration_ci_high,mean_finalized_blocks\n",
+    );
     for (n, vals) in groups {
         let lat: Vec<f64> = vals
             .iter()
             .map(|r| r.cutover_latency_micros as f64)
             .collect();
         let blocks: Vec<f64> = vals.iter().map(|r| r.finalized_blocks as f64).collect();
-        let migration_rate =
-            vals.iter().filter(|r| r.migration_success).count() as f64 / vals.len() as f64;
+        let migration_count = vals.iter().filter(|r| r.migration_success).count();
+        let (migration_low, migration_high) = ratio_ci(migration_count, vals.len());
+        let (lat_mean, lat_min, lat_max) = mean_min_max(&lat);
         out.push_str(&format!(
-            "{n},{},{:.1},{migration_rate:.4},{:.1}\n",
+            "{n},{},{lat_mean:.1},{lat_min:.1},{lat_max:.1},{:.4},{migration_low:.4},{migration_high:.4},{:.1}\n",
             vals.len(),
-            mean(&lat),
+            migration_count as f64 / vals.len() as f64,
             mean(&blocks)
         ));
     }

@@ -5,6 +5,14 @@ without halting block production. This repository is a Rust protocol artifact
 covering deterministic simulation, experiment generation, manifest validation,
 and an early local multi-validator runtime.
 
+The additional `formal/` design models on this branch are bounded abstractions,
+not implementation or deployment authority. See `formal/README.md` for the
+separate faithful and falsifying-control configurations. This PR retains the
+existing manuscript and results unchanged; the added figure-data generator
+can process fresh CSV inputs, but no new historical campaign data are included.
+Candidate Retry runtime implementation remains outside this PR pending its
+independent exact-byte authorization.
+
 ## Quick Start
 
 ```bash
