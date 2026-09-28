@@ -1,29 +1,29 @@
 # SAGE Experiment Guide
 
-This guide describes how to reproduce the current Rust-based SAGE artifact. It
-replaces the earlier Python-era workflow: experiments are now Cargo binaries,
-configuration is TOML, and outputs are CSV/JSON files under `results/`.
+This guide describes the Rust experiment and artifact-generation commands that
+are present on `main`. Experiments create fresh CSV/JSON outputs; they do not
+reconstruct the paper's retained campaigns merely because a config or seed
+label matches.
 
 ## 1. Artifact Scope
 
-SAGE is evaluated primarily as a deterministic protocol artifact. The simulator
-executes block finalization, shadow validation, migration control, manifest
-checks, rollback logic, adversarial partitions, and strategy comparisons. The
-local node crate provides early one-process runtime evidence, but production
-networking and durable crash recovery are still future work.
+SAGE is a conditional certified-boundary design. Source finalization continues
+during shadow preparation, followed by a deliberate certification pause before
+target activation. The simulator exercises a partial protocol path and records
+event-time metrics; it does not execute the complete committee-wide
+manifest/fence/abort/seal transport or measure client-visible interruption.
 
 Current claim boundary:
 
-- Supported: protocol-level safety/liveness evidence from deterministic Rust
-  simulation, executable invariants, manifest negative tests, and statistical
-  summaries.
-- Partially supported: local multi-validator runtime (`sage-node`) with PoA
-  finalization, SAGE cutover observation, one post-cutover HotStuff-finalized
-  block, store-backed double-vote rejection, and in-memory restart/continue
-  recovery.
-- Not yet fully supported: production deployment claims, real distributed
-  networking, durable disk-backed restart recovery, and geo-distributed
-  performance claims.
+- Supported within bounded scope: deterministic simulation behavior,
+  executable invariants, selected manifest-negative checks, bounded formal
+  design models, and synthetic CSV transformations.
+- Partially supported: constructed loopback multi-process controls for the
+  `CutCert`-gated PoA-to-HotStuff subset, with local fence/restart behavior.
+- Not established: complete networked certificate execution, persistent Rule 1
+  enforcement across every crash point, certified abort/seal end to end,
+  authenticated placement, physical geo-WAN behavior, client receipt
+  reconciliation, or production performance.
 
 ## 2. Environment
 
@@ -32,17 +32,21 @@ Required:
 - Rust toolchain with Cargo (edition 2021 workspace).
 - A POSIX shell for `make` targets.
 - No external dataset is needed; workloads are synthetic and seeded.
-- Optional: LaTeX toolchain if compiling `docs/paper.tex` with generated table
-  snippets.
+- Optional: a LaTeX toolchain for the canonical manuscript rebuild under
+  `docs/paper/SAGE_ThaiCong_IEEE/`.
 
 Recommended verification before experiments:
 
 ```bash
-cargo fmt --all --check
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-cargo run -p sage-experiments --bin verify -- --config config/default.toml
+cargo test --workspace --no-fail-fast
+cargo run -p sage-experiments --bin verify
 ```
+
+`verify` loads the checked-in configurations itself; it accepts no `--config`
+argument. A passing verifier is not validation of retained CSV rows or the
+complete handoff.
 
 Feature-gated real-crypto smoke test:
 
@@ -86,7 +90,7 @@ results/
 | `run_rq1` | Migration cost against baselines | `results/raw/rq1_migration_cost.csv` |
 | `run_rq2` | Partition safety / fork-rate trials | `results/raw/rq2_partition_safety.csv` |
 | `run_rq3` | Kappa / shadow anchoring ablation | `results/raw/rq3_kappa_ablation.csv` |
-| `run_rq4` | Rollback correctness inputs | `results/raw/rq4_rollback.csv` |
+| `run_rq4` | Simulator-derived abort-window/admissibility proxy; does not execute certified rollback | `results/raw/rq4_rollback.csv` |
 | `run_safety` | Adversarial partition safety | `results/raw/safety_partition.csv` |
 | `run_termination` | Partition-duration termination | `results/raw/termination.csv` |
 | `run_sensitivity` | Network-delay sensitivity | `results/raw/sensitivity.csv` |
@@ -135,7 +139,7 @@ cargo run -p sage-experiments --bin generate_figures -- --raw-dir results/raw --
 | RQ1 | Migration cost and finality continuity versus baselines | `run_rq1` |
 | RQ2 | Partition safety and fork behavior | `run_rq2`, `run_safety` |
 | RQ3 | Contribution of shadow anchoring / kappa | `run_rq3` |
-| RQ4 | Rollback correctness and scaling inputs | `run_rq4` |
+| RQ4 | Simulator-derived abort-window/admissibility proxy and scaling inputs | `run_rq4` |
 | E6 | Termination under partition duration | `run_termination` |
 | E7 | Sensitivity to network delay | `run_sensitivity` |
 | Manifest checks | Rejection of invalid/stale/replayed manifests | `run_manifest_tests` |
@@ -147,12 +151,11 @@ Common metrics include:
 - `finalized_blocks` and `max_finalized_height`
 - `migration_success`
 - `safety_violation`
-- `max_finalization_gap_micros` (RQ1): observed service interruption, measured
-  as the largest gap (simulated microseconds) between the first-finalization
-  timestamps of consecutive heights. A stop-the-world upgrade halts during its
-  snapshot/restart window (config `simulation.stw_downtime_micros`) and shows a
-  large gap; zero-halt strategies stay at normal block cadence. Measured from
-  recorded timestamps, NOT derived from the strategy flag.
+- `max_finalization_gap_micros` (RQ1): the largest simulated-time gap
+  between consecutive finalized heights. The stop-the-world arm includes a
+  configured maintenance halt. Other arms continue the partial simulator
+  pipeline, but this does **not** measure SAGE's complete certification pause
+  or client downtime.
 - `disjoint_quorum_windows` (RQ2/safety): count of heights where a non-CutCert
   cutover left BOTH partition sides simultaneously holding >= BFT quorum (2f+1),
   i.e. a fork was *structurally possible*. This is an EXPOSURE measure and is
@@ -163,72 +166,58 @@ Common metrics include:
 - confidence intervals from `sage-stats` where applicable
 
 Metadata JSON records stable SHA-256 configuration hashes, config/tool context,
-seed, strategy, run status, and artifact-version fields. This is sufficient for
-artifact-level provenance, although this checkout has no `.git` directory, so
-commit hashes are recorded as unavailable until repository metadata is restored.
+seed, strategy, run status, and artifact-version fields. Git commit availability
+depends on running inside a Git checkout; metadata alone is not a complete
+execution-environment or evidence attestation.
 
 ## 8. Expected Interpretation
 
-- SAGE should complete no-fault migration without safety violations in configured
-  deterministic runs.
-- Reconfig-only should not report a successful protocol swap.
-- HardFork and SageBlind are baseline-risk strategies used to expose why global
-  cutover coordination matters.
-- The RQ2/safety exposure metric makes this concrete and reproducible: under a
-  partition that straddles the cutover height with a balanced split (requires
-  `n >= 4f+2` so both sides reach quorum), HardFork and SageBlind are exposed to
-  a disjoint-quorum fork window in 100% of trials, while SAGE's CutCert gate
-  keeps exposure at 0%. The *observed* fork rate is 0 for all strategies in the
-  deterministic `sage-sim` simulator because it elects a single global proposer
-  per height and cannot drive two concurrent leaders.
-- Observed forks ARE now demonstrated outside the serialized simulator: the
-  `sage-node` integration test `tests/observed_fork.rs` drives the real HotStuff
-  engines in two partition-isolated quorum groups (n=6, f=1, quorum=3). Each
-  group independently reaches quorum and finalizes a different block at the same
-  height, and the executable fork detector (`sage_node::fork_detector`) reports
-  a real observed fork. A broken-control test proves the detector fires only on
-  an actual conflict; an unpartitioned control produces no fork.
-- Stop-the-world is expected to preserve safety but represent a downtime
-  baseline: RQ1 reports its observed `max_finalization_gap_micros` (~8 ms with the
-  default `stw_downtime_micros`) versus ~0.12 ms for zero-halt strategies.
-- Each baseline fails on a DIFFERENT axis, so no single scalar ranks them:
-  stop-the-world on downtime, HardFork/SageBlind on fork exposure (RQ2),
-  reconfig-only on protocol swap (`protocol_swap_success=false`). RQ1 emits
-  `rq1_stats.csv` with SAGE-vs-baseline Mann-Whitney U tests, rank-biserial
-  effect sizes, and Holm-Bonferroni family-wise decisions on the downtime metric.
-  Read it with care: SAGE-vs-StopTheWorld is significant with maximal effect
-  (rank-biserial +1.0), SAGE-vs-HardFork is correctly NOT significant (both
-  zero-halt), and SAGE-vs-ReconfigOnly is significant by p-value but the absolute
-  difference is ~6 us -- a statistical-vs-practical-significance caution, since
-  reconfig-only's real failure is the absent protocol swap, not downtime.
-- `verify` is a fast artifact gate that checks configuration loading,
-  deterministic reproducibility, key strategy behavior, invariant execution,
-  metadata hashing, schema constants, and existing raw CSV headers.
+- SAGE should complete configured no-fault simulator runs without recorded
+  safety violations; this is not a full-protocol execution claim.
+- Reconfig-only is a negative control and should not report a protocol swap.
+- HardFork and SageBlind are internal risk controls, not external system
+  implementations.
+- `disjoint_quorum_windows` is exposure, not an observed safety violation.
+  The serialized simulator has one proposer per height and cannot realize a
+  concurrent two-leader fork.
+- Process/testbed observations are constructed controls on a partial path.
+  Interpret their exact schedule, threshold and gate separately; they neither
+  authenticate deployment geography nor prove `n-f` uniquely necessary.
+- RQ1 is an inadmissible, quorum-confounded partial-path comparison. Its gaps
+  are simulator event time; the internal `CoxStyle` arm is not Cox, and the
+  configured STW halt dominates that contrast. No scalar ranks all strategies.
+- `run_rq4` computes `rollback_occurred` and latency from the configured window
+  and simulator outcome. It is an admissibility/rollback proxy, not execution
+  of `AbortCert`, state replay, or certified rollback.
+- `verify` is a smoke/invariant/schema gate, not a comprehensive evidence or
+  paper-submission gate.
 
 ## 9. Current Limitations
 
-- Simulator HotStuff uses deterministic external view synchronization for
-  repeatable experiments even though consensus pacemaker primitives exist.
-- Local `sage-node` uses an in-memory transport/store and is still a one-process
-  runtime, not a production distributed node.
-- Durable disk-backed recovery remains future work; current restart evidence uses
-  cloned in-memory stores to validate state restoration and safety keys.
-- `generate_tables` and `generate_figures` intentionally fail on missing required
-  inputs unless `--allow-missing` is supplied.
-- The serialized simulator cannot realize an observed cross-partition fork (one
-  global proposer per height), so RQ2/safety differentiate strategies via the
-  disjoint-quorum *exposure* metric rather than an observed fork rate.
-- The checkout used for the latest scan had no `.git` directory, so generated
-  metadata cannot include commit hashes until repository metadata is restored.
+- The process path does not execute committee-wide `ManifestCert`, `FenceCert`,
+  `AbortCert`, and `SealCert` transport end to end.
+- The certification pause and client-visible service interruption are not
+  measured on the complete path.
+- Receipt revocation/reconciliation and compensation for provisional external
+  effects remain outside the implementation.
+- Configured endpoints do not attest machine identity, placement, impairment,
+  or physical geo-WAN isolation.
+- The simulator cannot realize a concurrent cross-partition fork.
+- Bounded formal checks are not an implementation refinement proof.
+- Generated tables/figures summarize supplied rows; they do not authenticate
+  those rows as admitted evidence.
 
-## 10. Paper Update Checklist
+## 10. Paper and Artifact Checklist
 
-Before submitting or circulating the paper:
+Before circulating results:
 
-1. Run `make all` from a clean checkout.
-2. Confirm all raw CSVs and metadata files are regenerated.
-3. Run table/figure generation.
-4. Update `docs/paper.tex` from generated outputs only.
-5. Ensure every claim in the paper matches the artifact claim boundary above.
-6. Clearly separate simulator evidence from local-runtime and future production
-   claims.
+1. Run workspace checks and report actual outcomes; do not copy historical
+   counts.
+2. Write fresh experiment outputs to a new directory. Do not overwrite the
+   paper's hash-pinned retained inputs.
+3. Use `docs/paper/SAGE_ThaiCong_IEEE/rebuild.py --check-data` for paper-input
+   identity and `--verify-rebuild` for the presentation rebuild.
+4. Keep simulator, process, configured-endpoint, formal, and presentation
+   evidence tiers distinct.
+5. Match every claim to `docs/ARTIFACT_EVALUATION.md` and disclose unresolved
+   full-protocol, comparator, placement, and client-semantics gaps.

@@ -11,11 +11,13 @@ has a rejected source policy (`n=20,f=6,q1=11,qF=14`), differing target quorums
 `CoxStyle` arm is internal, not Cox. The current manuscript describes a
 deliberate certification pause and partial-path evidence, not a ready submission.
 
-The tracked manuscript and this historical response expose the unresolved
-evidence boundary. The detailed `PARTIAL_NOT_SUBMISSION_READY` disposition is
-operator-local under gitignored `docs/reviews/`, unavailable in a public clone.
-The manuscript source is local `docs/paper/SAGE_ThaiCong_IEEE/main.tex` until
-explicitly packaged; staged activation is not an approved replacement.
+The tracked canonical manuscript and this historical response expose the
+unresolved evidence boundary. The detailed `PARTIAL_NOT_SUBMISSION_READY`
+disposition is operator-local under gitignored `docs/reviews/`, unavailable in
+a public clone. The manuscript is packaged at
+`docs/paper/SAGE_ThaiCong_IEEE/main.tex`; presentation reproducibility does not
+turn the historical rows below into current findings, and staged activation is
+not an approved replacement.
 
 ---
 
