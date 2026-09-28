@@ -172,6 +172,8 @@ Observed results:
 - HotStuff includes timeout-certificate pacemaker primitives, but the simulator
   still uses deterministic external view synchronization for repeatable runs.
 - `sage-store` and `sage-network` provide trait-based in-memory backends.
+  Manifest insertion in the memory backend is idempotent for identical bytes
+  and rejects a conflicting body for an occupied epoch.
 - `sage-node` can run a one-process local testnet, finalize PoA blocks, observe
   SAGE cutover, and finalize one post-cutover HotStuff block in smoke tests.
 - The Ed25519 signature backend is available behind the `real-crypto` feature.
@@ -200,6 +202,8 @@ Observed results:
 - `docs/paper.tex` — retained legacy manuscript draft
 - `docs/ARTIFACT_EVALUATION.md` — scoped claim-to-evidence map
 - `docs/RESPONSE_TO_REVIEWS.md` — historical response and current limitations
+- `docs/EXPERIMENT_FAIRNESS.md` — comparison conditions and interpretation limits
+- `scripts/paper_prose_metrics.py` and `scripts/paper_section_sizes.py` — advisory manuscript diagnostics, not submission gates
 - `docs/guides/experiment_guide.md` — user-facing experiment guide
 - `docs/research/` — research-backed design decisions
 
