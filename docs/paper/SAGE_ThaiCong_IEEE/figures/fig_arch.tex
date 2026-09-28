@@ -1,0 +1,82 @@
+% DRAW-SPEC
+% message: During dual-run the legacy engine is the only finalizer; the target re-executes finalized
+%          blocks off-path, and the controller moves authority only after three certificates.
+% reading-order: left-to-right authoritative path (top), shadow path (bottom), controller (right).
+% nodes: clients, rpc, pool, c1, exec, c2, store, controller{ready,cut,man,fence}, note.
+% edges:
+%   clients -> rpc   : transactions (JSON-RPC, unchanged)
+%   rpc -> pool      : tx
+%   pool -> c1       : payload
+%   c1 -> exec       : finalized B_h
+%   exec -> ctrl     : r_h
+%   c1 -> c2         : anchor B_h (finalized only) [dashed]
+%   c2 -> store      : sigma_h, r~_h [dashed]
+%   store -> ctrl    : sigma_h, r~_h [dashed]
+%   ready->cut->man->fence : ordered certificate stages
+%   ctrl -> c2       : activate from r_{h*-1} after all certificates
+%   ctrl -> c1       : AbortCert before h_r -> fresh C1^{g1'} [dashed]
+% target: 183 mm x 80 mm; final text >= 7 pt.
+\documentclass[tikz,border=0pt]{standalone}
+\usepackage{draw-paper}
+\def\FigureWidthMM{183}
+\def\FigureHeightMM{80}
+\begin{document}
+\begin{tikzpicture}[draw canvas,
+  box/.style={draw card,minimum height=12mm,text width=#1,inner xsep=1.2mm},
+  box/.default=19mm,
+  shadowline/.style={-{Latex[length=1.9mm,width=1.35mm]},draw=drawAmber!90!black,line width=0.8pt,densely dashed},
+  stage/.style={draw pill,minimum width=32mm,minimum height=7.2mm,text width=29mm,
+    font=\sffamily\fontsize{6.8}{7.5}\selectfont},
+  lbl/.style={draw annotation,font=\sffamily\fontsize{6.6}{7.3}\selectfont}]
+  \path[use as bounding box] (0,0) rectangle (\FigureWidthMM,\FigureHeightMM);
+
+  \begin{scope}[on background layer]
+    \path[rounded corners=2mm,fill=drawLight] (1.5,1.5) rectangle (181.5,78.5);
+    \path[rounded corners=1.6mm,fill=drawTeal!7] (3,43) rectangle (143,67);
+    \draw[drawTeal!55,dashed,line width=0.5pt,rounded corners=1.6mm] (3,43) rectangle (143,67);
+    \path[rounded corners=1.6mm,fill=drawAmber!8] (3,14) rectangle (143,38);
+    \draw[drawAmber!70,dashed,line width=0.5pt,rounded corners=1.6mm] (3,14) rectangle (143,38);
+    \path[rounded corners=1.6mm,fill=drawPlum!7] (146.5,14) rectangle (180,67);
+    \draw[drawPlum!60,dashed,line width=0.5pt,rounded corners=1.6mm] (146.5,14) rectangle (180,67);
+  \end{scope}
+  \node[anchor=north west,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawTeal!55!black] at (4.2,66.2) {AUTHORITATIVE PATH (sole finalizer on $[h_{\mathrm d},h_\star)$)};
+  \node[anchor=north west,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawAmber!60!black] at (4.2,37.2) {SHADOW PATH (validates, never proposes)};
+  \node[anchor=north,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawPlum!80!black] at (163.25,66.2) {SAGE CONTROLLER};
+
+  % ---------- top row ----------
+  \node[box=14mm,draw=drawSlate!60] (clients) at (12,52) {Clients\\[-0.3ex]{\fontsize{6.4}{7}\selectfont JSON-RPC}};
+  \node[box,draw=drawSlate!60] (rpc) at (39,52) {Stable RPC\\interface};
+  \node[box,draw=drawSlate!60] (pool) at (66,52) {Mempool /\\payload builder};
+  \node[box,draw=drawTeal!70,fill=drawTeal!5] (c1) at (93,52) {\textbf{$\mathcal C_1$ PoA}\\[-0.2ex]authoritative};
+  \node[box,draw=drawSlate!60] (exec) at (122,52) {Execution\\$\delta_{\mathrm{exec}}$, root $r_h$};
+
+  % ---------- bottom row ----------
+  \node[draw card,draw=drawSlate!40,fill=white,text width=70mm,align=left,inner xsep=1.6mm,
+    font=\sffamily\fontsize{6.7}{8.2}\selectfont] (note) at (41.5,23.8) {%
+    \textbf{Readiness predicate} at validator $i$ (height $h$):\\
+    \hspace*{3mm}$\mathrm{Ready}_i(h)\iff h\ge h_{\mathrm c}{-}1\ \wedge\ \forall j\in(h{-}\kappa,h]:$\\\hspace*{24mm}$\sigma_j=\mathsf{valid}\ \wedge\ \tilde r_j=r_j$\\[0.2ex]
+    Shadow work is side-effect free and off the finalization path.};
+  \node[box,draw=drawAmber!85,fill=drawAmber!6] (c2) at (93,24) {\textbf{$\mathcal C_2$ HotStuff}\\[-0.2ex]shadow mode};
+  \node[box,draw=drawAmber!85,fill=white] (store) at (122,24) {Shadow store\\$\sigma_h,\ \tilde r_h$};
+
+  % ---------- controller stages ----------
+  \node[stage,draw=drawPlum!55] (ready) at (163.25,56) {ready; persist Rule 1 lock};
+  \node[stage,draw=drawPlum!55] (cut) at (163.25,45.5) {CutCert $\pi_{\mathrm B}$ ($n{-}f$)};
+  \node[stage,draw=drawPlum!55] (man) at (163.25,35) {ManifestCert $\pi_{\mathrm M}$ ($n{-}f$)};
+  \node[stage,draw=drawPlum!55] (fence) at (163.25,24.5) {FenceCert ($q_F$)};
+
+  % ---------- routes ----------
+  \draw[draw primary] (clients.east) -- (rpc.west);
+  \draw[draw primary] (rpc.east) -- node[lbl,above=0.4mm] {tx} (pool.west);
+  \draw[draw primary] (pool.east) -- (c1.west);
+  \draw[draw primary] (c1.east) -- node[lbl,above=0.4mm] {$B_h$} (exec.west);
+  \draw[draw primary] (exec.east) -- node[lbl,above=0.4mm] {$r_h$} (exec.east -| ready.west);
+  \draw[shadowline] (c1.south) -- node[lbl,right=0.6mm,fill=drawLight,align=left] {anchor $B_h$\\(finalized only)} (c2.north);
+  \draw[shadowline] (c2.east) -- (store.west);
+  \draw[shadowline] (store.east) -- node[lbl,above=0.4mm,fill=drawAmber!8] {$\sigma_h,\tilde r_h$} (store.east -| fence.west);
+  \foreach \a/\b in {ready/cut,cut/man,man/fence} \draw[-{Latex[length=1.5mm,width=1.1mm]},draw=drawPlum,line width=0.7pt] (\a.south) -- (\b.north);
+  % activation (below) and certified rollback (above)
+  \draw[draw primary,draw=drawPlum] (fence.south) -- (163.25,7.5) -| node[lbl,pos=0.25,above=0.3mm,fill=drawLight] {activate $\mathcal C_2$ from $r_{h_\star-1}$ only after CutCert, ManifestCert and FenceCert; $\mathcal A\leftarrow\mathcal C_2$ at $h_\star$} (c2.south);
+  \draw[draw support,draw=drawBlue] (163.25,67) -- (163.25,72.5) -| node[lbl,pos=0.25,above=0.3mm,fill=drawLight] {valid AbortCert before $h_{\mathrm r}$: restore $X_{h_\star-1}$ under fresh $\mathcal C_1^{g_1'}$, $g_1'>g_1$ (old $g_1$ stays fenced)} (c1.north);
+\end{tikzpicture}
+\end{document}

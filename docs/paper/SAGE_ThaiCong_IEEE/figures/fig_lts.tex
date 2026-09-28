@@ -1,0 +1,56 @@
+% DRAW-SPEC
+% message: Authority moves only on certified transitions; abort has priority in v2 and never revives g_1;
+%          the deadline h_r alone never promotes the target prefix to absolute finality.
+% reading-order: left-to-right forward path (v1 -> dual -> v2 -> sealed); abort branch below.
+% nodes: v1, dual, v2, sealed, rollback, authority-map card.
+% edges:
+%   v1 -> dual        : h >= h_d
+%   dual -> dual      : not Ready or no CutCert: extend
+%   dual -> v2        : CutCert and ManifestCert and durable fence and FenceCert (h_star < h_r)
+%   v2 -> sealed      : h >= h_r and valid SealCert
+%   v2 -> v2          : h >= h_r and no SealCert: stay, rollback disabled
+%   v2 -> rollback    : valid AbortCert, h < h_r, fresh g_1' > g_1 (priority)
+%   rollback -> v1    : resume from X_{h_star-1} under C_1^{g_1'} [dashed]
+% target: 183 mm x 64 mm; final text >= 7 pt.
+\documentclass[tikz,border=0pt]{standalone}
+\usepackage{draw-paper}
+\def\FigureWidthMM{183}
+\def\FigureHeightMM{64}
+\newcommand{\Nm}[1]{{\sffamily\bfseries\fontsize{7.6}{8.4}\selectfont #1}}
+\begin{document}
+\begin{tikzpicture}[draw canvas,
+  st/.style={draw card,line width=0.8pt,minimum width=25mm,minimum height=15mm,text width=23mm,
+    font=\sffamily\fontsize{6.8}{8.0}\selectfont},
+  nm/.style={font=\sffamily\bfseries\fontsize{7.6}{8.4}\selectfont},
+  el/.style={draw annotation,fill=drawLight,font=\sffamily\fontsize{6.7}{7.6}\selectfont,align=center},
+  tr/.style={-{Latex[length=2.0mm,width=1.4mm]},draw=drawInk,line width=0.85pt}]
+  \path[use as bounding box] (0,0) rectangle (\FigureWidthMM,\FigureHeightMM);
+  \begin{scope}[on background layer]
+    \path[rounded corners=2mm,fill=drawLight] (1.5,1.5) rectangle (181.5,62.5);
+  \end{scope}
+
+  \node[st,draw=drawTeal!75,fill=drawTeal!7] (v1) at (16,38) {\Nm{V1}\\$\mathcal A=\mathcal C_1^{g_1}$};
+  \node[st,draw=drawAmber!85,fill=drawAmber!8] (dual) at (55,38) {{\Nm{DUAL}}\\$\mathcal A=\mathcal C_1^{g_1}$\\$\mathcal C_2$ in shadow};
+  \node[st,draw=drawPlum!70,fill=drawPlum!7] (v2) at (124,38) {\Nm{V2}\\$\mathcal A=\mathcal C_2$\\suffix provisional};
+  \node[st,draw=drawPlum!90,fill=drawPlum!20] (sealed) at (166,38) {{\Nm{SEALED}}\\$\mathcal A=\mathcal C_2$\\prefix absolute};
+  \node[st,draw=drawBlue!70,fill=drawBlue!6] (rb) at (55,11) {{\Nm{ROLLBACK}}\\$\mathcal A=\mathcal C_1^{g_1'}$, $g_1'>g_1$};
+
+  % forward path
+  \draw[tr] (v1.east) -- node[el,above=0.6mm] {$h\ge h_{\mathrm d}$} (dual.west);
+  \draw[tr,draw=drawPlum,line width=1.0pt] (dual.east) -- node[el,below=0.8mm,text width=36mm,fill=drawLight] {CutCert $\wedge$ ManifestCert\\$\wedge$ durable fence $\wedge$ FenceCert\\(at $h_\star<h_{\mathrm r}$)} (v2.west);
+  \draw[tr,draw=drawPlum] (v2.east) -- node[el,above=0.6mm,text width=13mm] {$h\ge h_{\mathrm r}$\\$\wedge$ SealCert} (sealed.west);
+  % self-loops
+  \draw[tr,draw=drawAmber!90!black] (dual.north west) ++(5,0) .. controls +(0,12) and +(0,12) .. ($(dual.north east)+(-5,0)$)
+    node[el,pos=0.5,above=0.2mm] {$\neg\mathrm{Ready}\ \vee\ \nexists\,$CutCert: extend};
+  \draw[tr,draw=drawPlum!80] (v2.north west) ++(5,0) .. controls +(0,12) and +(0,12) .. ($(v2.north east)+(-5,0)$)
+    node[el,pos=0.5,above=0.2mm] {$h\ge h_{\mathrm r}$, no SealCert: stay (abort disabled)};
+  % abort branch
+  \draw[tr,draw=drawBlue,line width=1.0pt] (v2.south) |- node[el,pos=0.75,above=0.5mm,text width=46mm] {valid $n{-}f$ AbortCert before $h_{\mathrm r}$\\(priority); binds fresh $g_1'>g_1$} (rb.east);
+  \draw[draw support,draw=drawBlue] (rb.west) -| node[el,pos=0.25,below=0.6mm] {restore $X_{h_\star-1}$} (v1.south);
+
+  % legend-card: authority invariant
+  \node[draw card,draw=drawSlate!45,fill=white,anchor=south east,text width=38mm,align=left,
+    inner xsep=1.6mm,font=\sffamily\fontsize{6.6}{8.0}\selectfont] at (179.5,3.5) {\raggedright
+    \textbf{Invariant.} At every height at most one engine is authorized to finalize; the fenced generation $g_1$ is never resumed; only a SealCert yields absolute finality.};
+\end{tikzpicture}
+\end{document}

@@ -18,7 +18,6 @@
 
 # Private workspace context - not part of the public artifact
 /AGENTS.md
-/docs/README.md
 /docs/plans/**
 /docs/rebuttal/**
 /docs/reviews/**

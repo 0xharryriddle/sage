@@ -1,0 +1,399 @@
+% ===================================================================== EVALUATION
+\section{Evaluation}
+\label{sec:eval}
+
+\subsection{Questions, evidence tiers, and scope}
+The evaluation investigates four research questions (RQs) at the evidence tiers below.
+\textbf{RQ1}: what event-time cost does the partial \CutCert{} path incur relative to a modeled
+scheduled halt and to internal switches? \textbf{RQ2}: which observed conflicts follow target
+quorum policy, and which unauthorized crossings are stopped by the \CutCert{} gate?
+\textbf{RQ3}: does shadow validation detect injected root divergence, and how does the
+stability window $\kappa$ behave in the tested model? \textbf{RQ4}: do rollback-context
+admission checks fail closed, and how do the partial-path results vary with $n$ and delay?
+
+Four methods supply different kinds of evidence (\cref{tab:tiers}). The algebra establishes
+fixed-committee properties under the assumptions of \cref{sec:analysis}; TLC exhausts only its
+selected finite instances. Seeded simulator sweeps measure event-time behaviour, but the simulator
+elects one proposer per height and cannot generate a two-leader fork. Concurrent TCP validator
+processes can realize conflicting finalizations, although their reported controls use constructed
+schedules rather than a sampled deployment workload. \Cref{tab:status} separates proved,
+implemented, and campaign-executed elements. In this section, the experimental label \sage{}
+means the \CutCert-gated PoA$\to$HotStuff path with a local durable fence; it does not mean the
+complete committee-wide protocol in \cref{alg:sage}.
+
+Every process result uses a crash-only, non-equivocating PoA source; no process campaign exercises a
+Byzantine-equivocating source. Local fence/restart checks also do not establish that the source-vote
+prohibition of durable Rule~\ref{rule:lock} holds across every crash point before or after a
+\CutCert. These are separate proof and implementation obligations, not outcomes inferred from
+the process controls.
+
+
+\begin{table}[t]
+\centering
+\caption{Evidence tiers and the claims each supports.}
+\label{tab:tiers}
+\small
+\renewcommand{\arraystretch}{1.14}
+\rowcolors{2}{rowtint}{white}
+\begin{tabular}{@{}L{0.25\columnwidth}L{0.69\columnwidth}@{}}
+\toprule
+\textbf{Tier} & \textbf{Supports} \\
+\midrule
+Proof & Size-parametric quorum and handoff properties under stated assumptions \\
+Bounded model & Exhaustive safety on finite instances; outcome conformance with Rust, not refinement \\
+Simulator & Event-time cost and sensitivity; zero-fork outcomes are structural \\
+Process & Loopback gate/conflict controls; same-region crash catch-up; no full transport \\
+Configured endpoints & Descriptive rates and gaps; throughput substrate and impairment unattested \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\paragraph{Comparison arms and controls}
+The internal arms are the \sage{} path, stop-the-world (STW), an uncoordinated hard fork (HF),
+reconfiguration-only (RC, a BFT-SMaRt-style membership change within one engine~\cite{bftsmart}),
+\sage-blind (no gate), an ungated scheduled switch that makes the target authoritative at $\hc$,
+and a $2f{+}1$-gated switch. The \emph{Cox-style} arm is an internal
+scheduled zero-halt switch-class control without \sage's cross-engine gate;
+it is \emph{not} a run of Cox~\cite{cox}. In particular, it does not execute
+Cox's published reconfiguring state, certified checkpoint, and chained epoch
+recovery (\cref{sec:related}).
+Within each stated contrast the committee, fault budget, workload, seed
+labels, delay model, timeout, warm-up, and measurement window are fixed. This does not make a
+comparison one-factor when its target quorum or deliberately inserted maintenance halt differs.
+
+\paragraph{Replication}
+RQ1 uses $60$ seeds per arm at $n=20$, $f=6$. The RQ2 simulator grid uses $30$ seeds per
+strategy$\times$split$\times$duration cell. RQ3 uses $20$ seeds per $\kappa$ plus a $20$-seed injection
+grid, and RQ4 uses $20$ seeds per configuration. The scaling grid covers
+$n\in\{4,7,10,13,16,20,25,31,50,100\}$, and delay sensitivity covers $\{20,\dots,640\}$\,ms, with $20$
+trials per point. Process-tier schedules are \emph{constructed conformance cases}, not samples from an
+operational population. We report integer counts and nominal $95\%$ Wilson score intervals as
+descriptive summaries under a Bernoulli interpretation, not exact intervals or calibrated operational
+risk bounds. These constructed schedules are not samples of an operational distribution;
+deterministic repetition on one schedule does not independently sample deployment conditions.
+Counts are not pooled across tiers.
+
+\subsection{RQ1: modeled migration cost}
+\label{sec:rq1}
+The retained RQ1 is a \CutCert-path cost microbenchmark, not a full-protocol performance
+experiment. At $(n,f)=(20,6)$ its majority PoA source uses $q_1=11$ and $q_F=14$, so
+$q_F+q_1=25\le26=n+f$: \cref{th:fence-admission} rejects this source policy. Moreover, the
+no-maintenance-halt arms do not all use the same target quorum. \Cref{tab:main} retains the
+$40$-height, $\kappa=8$ comparison because it describes the partial path, not because it
+validates \cref{alg:sage}. Its metric is the maximum gap between successive finalizations in
+simulator event time, recomputed from timestamps rather than assigned by arm; it is not client
+downtime or the certification pause of \eqref{eq:tbdy}. The \sage{} mean is $0.126$\,ms,
+versus $8.109$\,ms for STW. This approximately $64\times$ separation is chiefly the configured
+STW halt against a no-halt simulator pipeline. The no-halt means span $0.116$--$0.126$\,ms;
+\sage{} is not the fastest. The \sage{} cutover-evidence latency is $109.6\,\mu$s on
+average (median $111.5\,\mu$s; \cref{fig:results}b), but neither statistic includes
+committee-wide manifest/fence transport or client-visible interruption.
+
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{Simulator event-time cost ($n=20$, $f=6$, $40$ heights, $16$ accounts, $\kappa=8$; mean
+of $60$ seeds). Partial-path microbenchmark: $q_1=11$ fails admission, target quorums differ,
+and gaps are not deployment downtime.}
+\label{tab:main}
+\small
+\setlength{\tabcolsep}{3.6pt}
+\renewcommand{\arraystretch}{1.14}
+\rowcolors{2}{rowtint}{white}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Arm} & \textbf{Gap (ms)} & \textbf{95\% interval}\tnote{a} \\
+\midrule
+\input{tables/rq1_rows.tex}
+\begin{tablenotes}\footnotesize
+\item[a] Percentile-bootstrap interval for the mean maximum finalization gap; $10{,}000$ resamples
+of the $60$ retained seeds, with fixed resampling seed. It describes simulated seed variability,
+not deployment uncertainty. Only \sage{} gathers cutover evidence (mean $109.6\,\mu$s).
+The retained rows do not include a per-trial swap-success indicator.
+\item[b] Switch-class comparator, not a Cox reimplementation; its gap distribution is identical to
+the hard-fork control (mean $122.57\,\mu$s for both).
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\paragraph{Statistical analysis}
+Seed-indexed differences use two-sided Wilcoxon signed-rank tests with matched-pairs rank-biserial
+effect sizes $r_{\mathrm{rb}}$. Holm--Bonferroni controls the four-comparison family at $\alpha=0.05$,
+with ordered thresholds $0.0125,0.0167,0.025,0.05$. Equal seed labels give deterministic pairing but
+not common random numbers, because strategy-dependent event progression changes later delay draws.
+\sage{} has a lower gap than STW on all $60$ seeds (median difference $-7984\,\mu$s, $W=0$,
+$p=1.6\times10^{-11}$, $r_{\mathrm{rb}}=-1.0$). Its median difference from RC is $+9.0\,\mu$s ($W=0$,
+$p=1.6\times10^{-10}$, $r_{\mathrm{rb}}=+1.0$). This is statistically clear but small against RC's
+$116.5\,\mu$s median, and RC performs no engine swap. The HF and Cox-style contrasts both
+give a median difference of $+3.0\,\mu$s ($8/60$ ties, $W=52.5$, $p=6.1\times10^{-9}$,
+$r_{\mathrm{rb}}=+0.924$); the two controls have identical values.
+The no-halt switching comparison is \emph{quorum-confounded}: \sage{} uses the
+intersection-safe target $q=14$, whereas HF and the Cox-style control use
+$q=13=2f+1$, unsafe at $(20,6)$ by \cref{th:window}. RC has no target-engine
+swap at all. Thus the contrasts do not identify certification cost or rank
+full switching mechanisms; even the statistically detectable $3\,\mu$s
+median differences are not evidence of a negligible deployment penalty.
+
+\paragraph{What a cost rerun must establish}
+At $(20,6)$ retirement admission with $q_F=14$ requires $q_1\ge13$, while source-engine safety is
+a separate obligation and may demand a stronger source policy. Reusing the retained timings with
+a changed threshold would not be a rerun. An admitted distributed experiment must fix the source
+policy and relevant target quorum across arms when isolating the gate, report resolved thresholds,
+and execute \CutCert, \ManCert, durable local fence, and \FenceCert{} before the first
+target commit. It should retain per-trial last-source-to-first-target wall-clock gaps, client-visible
+service interruptions, stage latencies, and completion/failure outcomes under the same workload and
+network harness. The arithmetic example $(n,f,q_1,q_2,q_F)=(6,1,4,5,5)$ passes retirement
+admission for the evaluated crash-only source; it is a candidate configuration, \emph{not}
+evidence that the missing certificate transport runs. No such full-path RQ1 result is available.
+
+\paragraph{Shadow-validation overhead}
+An additional one-host \emph{simulator-capacity} microbenchmark uses the same
+seed labels, load, committee, and measurement window over ten seeds per load.
+Its arms are a source-only PoA/RC baseline, \sage{} dual-run, and an internal
+Cox-style switch (labelled C in \cref{tab:overhead}), not an executed external
+comparator. The retained trial CSV does not record resolved target quorums.
+In the documented driver, \sage{} uses native $n-f=14$ while the Cox-style
+control selects $2f+1=13$ at $(20,6)$; RC remains on the source. This is not
+a quorum-matched estimate of shadow-validation overhead or an admissible
+migration experiment. The table's inferred validator commit rate is a
+configured transaction-volume numerator divided by process wall-clock time,
+not observed client TPS or client-completed throughput. \sage{}/C point estimates are
+$0.49$--$2.10\%$ lower over six loads; at $25$ tx/block the pointwise $95\%$
+interval includes zero. The \sage{} means are also $3.96$--$4.71\%$ above
+the baseline despite additional work per block, a counterintuitive direction
+consistent with shared-host scheduling or timing artefacts, not evidence of a
+speed-up. Without matched policies, a predeclared equivalence margin, or an
+independent client measurement, the descriptive ratios establish no throughput
+parity or isolated shadow overhead. The largest arm-mean CPU spread is $5.15$
+percentage points; the resident-set-size range peaks at $7.52$\,MiB at
+$500$ tx/block. The pointwise S/C intervals resample paired seed indices
+$10{,}000$ times for ratios of arm means; resampling cannot remove shared-host
+bias or the policy mismatch.
+
+\begin{table}[t]
+\centering
+\caption{One-host simulator-capacity microbenchmark (ten seeds per load).
+S: \sage{} dual-run; C: internal Cox-style switch; base: source-only PoA/RC.
+Values are percentage changes in inferred simulator commit rate; intervals describe S/C.}
+\label{tab:overhead}
+\small
+\renewcommand{\arraystretch}{1.14}
+\rowcolors{2}{rowtint}{white}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+\textbf{Tx/block} & \textbf{S/base} & \textbf{C/base} & \textbf{S/C} & \textbf{95\% interval} \\
+\midrule
+\input{tables/overhead_rows.tex}
+\end{table}
+
+\subsection{RQ2: threshold safety versus gate authorization}
+\label{sec:rq2}
+All process controls in this subsection use the crash-only PoA source, not a
+Byzantine-equivocating source. A single fork-rate contrast cannot identify both the target-quorum
+effect and the \CutCert{} authorization effect. We therefore examine them separately. A
+\emph{realized conflict} is a pair of distinct finalized state roots at one height; disjoint-quorum
+exposure is a structural precondition, not an observed violation. Cross-domain Byzantine retirement
+remains a conditional theorem and finite-model result, not an inference from these process counts.
+
+
+\paragraph{Threshold axis}
+In a balanced $3/3$ loopback partition, gated and ungated arms at $q=5$ both yield $0/5$
+conflicts and stop at height~3. The ungated $q=3$ arm conflicts in $5/5$ trials
+(\cref{fig:results}a, \cref{tab:rq2controls}). Neither side can reach the safe $q=5$
+threshold, gate or no gate; each can reach the unsafe $q=3$ threshold. The matched
+safe-threshold contrast is therefore a \emph{negative} gate-fork control. It identifies
+the threshold effect in this schedule, not a separate fork-prevention effect of the gate.
+
+\paragraph{Authorization axis}
+An unbalanced $4/2$ partition instead admits a $q=4$ target quorum on the larger side but
+not the $n-f=5$ \CutCert{} gate. With this research-only intersection-safe target policy held
+fixed, the gated arm refuses all ten crossings and stops at height~3; the ungated arm reaches
+height~10 and crosses without a valid \CutCert{} in $10/10$ trials (nominal Wilson interval
+$[0.72,1]$). Neither arm forks. The observed gate effect is \emph{authorization refusal},
+with lost availability in this partition: gate-closure evidence, not migration liveness or
+prevention of a realized fork. The ungated $q=3$ control likewise crosses without a
+certificate in $10/10$ trials. Authorization counts are retained as aggregates rather
+than individual trial traces (\cref{tab:rq2controls}).
+
+\begin{table}[t]
+\centering
+\begin{threeparttable}
+\caption{RQ2 process controls at $n=6$, $f=1$ (loopback). Conflict: distinct finalized roots at one
+height. Unauthorized: target authority without a valid \CutCert.}
+\label{tab:rq2controls}
+\small
+\setlength{\tabcolsep}{2.6pt}
+\renewcommand{\arraystretch}{1.14}
+\rowcolors{2}{rowtint}{white}
+\begin{tabular}{@{}llccl@{}}
+\toprule
+\textbf{Axis} & \textbf{Arm} & $q$ & \textbf{Gate} & \textbf{Observed} \\
+\midrule
+\input{tables/rq2_rows.tex}
+\begin{tablenotes}\footnotesize
+\item[a] Aggregate-only counts; individual trial ledgers were not retained.
+The threshold-axis $q$ values follow the recorded policy and its provenance note,
+not per-trial resolved-threshold telemetry.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\paragraph{Secondary evidence}
+Two further loopback campaigns agree at the tested thresholds: under a balanced partition,
+$0/20$ trials conflict at each of $q=5$ and $q=4$, versus $20/20$ at $q=3$; without a
+fault, both safe arms migrate in $20/20$ trials without conflict. In the simulator
+($n=10$, $f=2$, unsafe control threshold $2f+1=5$; $60$ observations per split), HF
+and blind switching have disjoint-quorum exposure in all balanced $5/5$ splits, versus
+none for \sage{}. Splits of $2$ or $3$ expose no arm. All simulated fork counts are
+zero by construction of its single-proposer-per-height schedule; only the process tier
+provides realized-conflict evidence. A supplemental configured-endpoint differential reports
+$0/5$ \sage{} versus $5/5$ blind hard-fork conflicts; its endpoint and impairment
+metadata do not independently authenticate host placement, partition activation, or applied
+delay, so we do not pool it with the loopback controls.
+Injected-latency settings on same-region hosts are not physical geo-separation; the endpoint
+labels do not establish an independently authenticated network substrate.
+
+\subsection{RQ3: shadow detection and \texorpdfstring{$\kappa$}{kappa} conformance}
+Across $20$ seeds for each $\kappa\in\{1,2,4,8,16\}$, the simulator observes no unsafe
+cutover in $100$ runs. This checks the tested stability-window transitions, not a trend in
+production divergence risk: $u(\kappa)$ in \eqref{eq:coverage} depends on whether the workload
+exercises a latent divergent path. In a separate injected-root campaign (20 seeds, six
+injection probabilities from $0$ to $1$, 64 blocks per point), all $1{,}818$ injected
+root mismatches among $7{,}680$ block observations are detected, with zero false positives
+among $5{,}862$ clean blocks. The injection probabilities are control settings, not estimates
+of divergence prevalence; the result covers the exercised mismatch class only. Workloads
+that omit a divergent path can keep $u(\kappa)=1$ at every tested window size.
+
+\subsection{RQ4: rollback admission, scaling, and delay}
+\paragraph{Fail-closed context admission}
+The rollback-manager component receives 20 requests in each of four fixture classes.
+It admits $20/20$ metadata-independent requests and $20/20$ with captured metadata,
+while rejecting $20/20$ with uncaptured metadata and $20/20$ with a tampered binding.
+These are checks of replay-context \emph{admission}, not of execution equivalence. No
+application bytecode is run, provisional suffix replayed, or post-replay state root
+compared under metadata/oracle dependencies. That requires a deterministic application
+runtime, a bound oracle snapshot where applicable, and per-trial root comparisons after
+a certified abort. A separate schedule-classification run ($n=10$, $f=3$,
+$(\hd,\hc,\hr)=(4,10,25)$) completes 40 ordinary runs without a reported safety
+violation and classifies heights $12$ and $30$ as in-window and past-deadline;
+it injects no abort and cannot establish certified rollback progress.
+
+\paragraph{Scaling with committee size}
+At each tested $n\in\{4,7,10,13,16,20,25,31,50,100\}$, all 20 simulated trials
+complete without a reported safety violation. Mean cutover-evidence latency is
+$99$--$117\,\mu$s in simulator event time (\cref{fig:results}c). Because the metric
+aggregates collection, verification, and transition in a partial-path event model,
+the flat curve is a functional scaling check, not measured distributed scaling. In
+the single-host process testbed ($n\in\{10,16,22,31\}$, two configured impairment
+profiles, three trials per point), no fork is reported across 24 runs. Completion
+is less uniform: at $n=31$, $29/31$ validators finish before timeout under
+$10$/$2$\,ms delay/jitter and only $1/31$ under $50$/$10$\,ms. Host resource
+contention, pacemaker behaviour, and timeout policy are competing explanations;
+three repetitions per point cannot identify their separate effects.
+
+\paragraph{Sensitivity to network delay}
+With configured mean one-way delay increasing from $20$ to $640$\,ms (20 simulated
+trials per point), all partial-path migrations complete. Mean cutover-evidence
+latency rises from $51.8$ to $1601.4$\,ms, with log--log slope $0.99$ and ratios
+of $2.5$--$2.7$ to configured delay (\cref{fig:results}d). This is compatible with
+a constant-round event model, but neither isolates individual certificate rounds
+nor measures the manifest/fence sequence or first-target-commit bound in
+\cref{th:liveness}.
+
+\subsection{Crash--restart and partition healing}
+\label{sec:crash-recovery}
+Three five-seed crash/restart schedules use six same-region hosts at $n=6$, $f=1$.
+Validator~5 is terminated 20 seconds after launch and restarted six seconds later
+from its own durable store. In the first schedule the boundary was already crossed;
+the other two place $h_c=260$ inside the outage, requiring the recovered process to
+adopt a legacy prefix and cross the \CutCert{} gate. The retained verifier requires
+all six validator results, contiguous committed heights, agreement of reported
+state roots at shared heights, and catch-up within the healthy validators' observed
+height spread (at most three heights). The post-boundary schedule passes $4/5$ seeds;
+one healthy validator produces no result in the failing seed, associated with an
+open pacemaker fault. The boundary-spanning schedules pass $3/5$ and $5/5$ seeds.
+In the former, one restarted validator dies on a pre-existing QC-resolution fault;
+another misses the wall-clock catch-up criterion by one height. The latter uses an
+atomic block/replay-context store transition, but no trial is known to inject a
+crash between the formerly separate durable writes. The difference between $3/5$
+and $5/5$ is therefore not a causal estimate of the atomic transition.
+
+Although the verifier reports no cross-validator root conflict in these runs, the
+balanced synthetic workload is state-root neutral: a single root across heights
+cannot distinguish same-epoch block histories. Catch-up and contiguity are the
+informative observations, not a validation of Byzantine-source safety or durable
+Rule~\ref{rule:lock}. These same-region host records do not constitute a
+physical geo-WAN or a full-certificate crash campaign.
+
+For partition healing, a separate single-host socket-layer $3/3$ partition begins
+at height~4 and lasts three $2$\,s view timeouts before the mesh is restored.
+Admission requires a timestamped isolation of at least one full view timeout; the
+minimum observed across five seeds is $6000.0$\,ms. After healing, all six processes
+reconnect, finalize beyond the boundary, and converge at height~8 or~9 without a
+reported finalized-state conflict. This does not test manifest/fence transport
+after a partially delivered certificate.
+
+\subsection{Configured-endpoint observations}
+At $n=6$, $f=1$ and 200 synthetic transactions per block, the configured-endpoint
+run reports validator commit rates of $777$\,tx/s for \sage{} and $790$\,tx/s
+for both the blind hard fork and scheduled switch (a $1.65\%$ spread).
+Cutover-straddling gaps are about $10.5$\,ms in all three arms against a
+steady-state cadence near $500$\,ms. A longer \sage-only run to height~60
+reports inter-commit gaps of $p_{50}=493$\,ms, $p_{95}=596$\,ms, and
+$p_{99}=601$\,ms, with one $16.4$\,ms cutover gap. These are validator-side
+partial-path timings, not full-certification or client-service measurements.
+
+Under an operator-labelled $\approx104$\,ms round-trip time, the three-trial
+arm means are $230.4$ (\sage), $230.2$ (hard fork), and $222.7$\,tx/s
+($2f{+}1$-gated). The descriptive $95\%$ Student-$t$ intervals computed from
+the retained rounded trial means are $[229.74,231.06]$, $[229.41,230.93]$,
+and $[222.02,223.45]$\,tx/s, respectively. They use two degrees of freedom
+and assume independent normal trial means, which three shared-environment trials
+cannot verify. The configured-endpoint records do not authenticate host identity, placement,
+partition activation, or applied delay; operator labels and impairment metadata describe settings,
+not an independently authenticated substrate. These intervals do not capture placement
+uncertainty or justify latency/throughput equivalence. The six validators in the
+unimpeded run are within-run observations, not independent trials; their quantiles
+cannot be pooled as client-latency samples. No equivalence margin was specified in
+advance, and \eqref{eq:tbdy} remains unmeasured.
+
+
+\subsection{Reproducibility}
+The simulator is deterministic at fixed seeds and configurations; the repository
+contains TLA+ models, fixed seed lists, raw-result subsets, a reproduction map,
+and vector-figure sources. The supplementary implementation pins a Rust toolchain
+and uses OpenJDK~21 for model checking. The presentation workflow regenerates six
+figures, four numerical tables, and uncertainty summaries from analytic formulas
+and eight hash-bound retained data files, then builds the manuscript. Its input
+checks identify whether table rows are trial-backed or aggregate-only:
+\cref{tab:main,tab:overhead} use retained seed rows, whereas the authorization
+counts in \cref{tab:rq2controls} and timing percentiles in \cref{tab:certtiming}
+cannot be reconstructed from individual samples. Regenerating these outputs is
+not a rerun of a process or simulator campaign. The relocatable source-only
+presentation bundle reproduced its 22 products byte-for-byte on the same host
+with a fresh home and temporary workspace. This generation-specific build seal
+is not comprehensive experimental provenance: it checks packaged dependencies,
+not a hermetic toolchain, a trial rerun, or clean-public-checkout availability.
+
+The default experiment targets use smaller smoke grids than the reported grid;
+there is no single default command that reruns every reported trial. Some process
+campaigns retain per-trial results, but several retain only aggregates. A
+complete per-trial reconstruction chain and per-campaign CPU model, cores, RAM,
+kernel, tool versions, impairment verification, and elapsed times remain missing
+for some results. Packaging-host metadata cannot retrospectively describe a
+historical experiment host.
+
+The byte-matched retained execution logs recover three whole-command intervals:
+simulator scaling (201\,s), delay sensitivity (12\,s), and certificate timing (8\,s).
+UTC start/completion timestamps have one-second resolution;
+the intervals include compilation if present and are neither per-trial times nor
+protocol latencies. The RQ1 and overhead inputs do not match the similarly named
+historical logged campaign, so its intervals cannot be assigned to them.
+All 200 campaign-bound scaling records report Rust/Cargo~1.93.1 and have timestamps
+within the scaling command interval. CPU model, cores, RAM, and OS/kernel remain
+unestablished for these three input families; toolchain versions for delay sensitivity and certificate timing remain unestablished.
+Exact campaign metadata and per-trial
+authority traces, rather than a document hash alone, are needed to reduce the
+implementation-to-model evidence gap.

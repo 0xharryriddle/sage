@@ -1,0 +1,163 @@
+\documentclass[5p,times,twocolumn]{elsarticle}
+
+% The build fixes SOURCE_DATE_EPOCH; fixing the trailer seed removes pdfTeX's
+% output-path-dependent document ID so isolated builds are byte-identical.
+\pdftrailerid{SAGE-2026-BCRA-CANONICAL}
+
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\allowdisplaybreaks[3]
+\usepackage{bm}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{array,booktabs,multirow,makecell,tabularx}
+\usepackage{threeparttable}
+\usepackage{graphicx}
+\usepackage[table]{xcolor}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{xurl}
+\usepackage[colorlinks=true,linkcolor=sageblue,citecolor=sageblue,urlcolor=sageblue]{hyperref}
+\usepackage[capitalise,nameinlink]{cleveref}
+
+\hypersetup{
+  pdftitle={SAGE: A Certified Cross-Engine Boundary for Fixed-Committee Consensus Migration in Permissioned Blockchains},
+  pdfauthor={Nguyen Thai Cong and Tuan-Dung Tran},
+  pdfsubject={Live migration between heterogeneous consensus engines in permissioned blockchains},
+  pdfkeywords={consensus migration, Byzantine fault tolerance, permissioned blockchain, quorum intersection, live upgrade, model checking}
+}
+\pdfminorversion=7
+
+\definecolor{sageblue}{HTML}{0B4F8A}
+\definecolor{rowtint}{HTML}{F2F5F9}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+% ---------------------------------------------------------------- theorems
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{assumption}{Assumption}
+\newtheorem{rulebox}{Rule}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+\crefname{rulebox}{Rule}{Rules}
+\crefname{assumption}{Assumption}{Assumptions}
+\crefname{algorithm}{Algorithm}{Algorithms}
+\crefname{appendix}{Appendix}{Appendices}
+\crefname{figure}{Figure}{Figures}
+\crefname{table}{Table}{Tables}
+
+% ---------------------------------------------------------------- notation
+\newcommand{\cert}[1]{\textsf{#1}}
+\newcommand{\CutCert}{\cert{CutCert}}
+\newcommand{\ManCert}{\cert{ManifestCert}}
+\newcommand{\FenceCert}{\cert{FenceCert}}
+\newcommand{\AbortCert}{\cert{AbortCert}}
+\newcommand{\SealCert}{\cert{SealCert}}
+\newcommand{\hs}{h_{\star}}
+\newcommand{\hd}{h_{\mathrm d}}
+\newcommand{\hc}{h_{\mathrm c}}
+\newcommand{\hr}{h_{\mathrm r}}
+\newcommand{\hb}{h_{\mathrm b}}
+\newcommand{\Hash}{\mathsf{H}}
+\newcommand{\Csrc}{\mathcal{C}_1}
+\newcommand{\Ctgt}{\mathcal{C}_2}
+\newcommand{\Auth}{\mathcal{A}}
+\newcommand{\VM}{\mathcal{V}_{\mathrm M}}
+\newcommand{\phase}[1]{\textsc{#1}}
+\newcommand{\sage}{\textsc{Sage}}
+
+\journal{Blockchain: Research and Applications}
+
+% elsarticle's title footer leaves interword glue after its full-width box.
+% Remove only that glue; retain the journal line and date without overflow.
+\makeatletter
+\let\sage@pprintTitle\ps@pprintTitle
+\def\ps@pprintTitle{%
+  \sage@pprintTitle
+  \let\sage@titlefoot\@oddfoot
+  \def\@oddfoot{\sage@titlefoot\unskip}%
+  \let\@evenfoot\@oddfoot}
+\makeatother
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{\sage: A Certified Cross-Engine Boundary for Fixed-Committee Consensus Migration in Permissioned Blockchains}
+
+\author[uit]{Nguyen Thai Cong}
+\author[uit]{Tuan-Dung Tran\corref{cor1}}
+\ead{dungtrt@uit.edu.vn}
+\cortext[cor1]{Corresponding author.}
+\affiliation[uit]{organization={University of Information Technology, Vietnam National University},
+  city={Ho Chi Minh City},
+  country={Vietnam}}
+
+\begin{abstract}
+Replacing the consensus engine of a running permissioned blockchain changes who can finalize
+blocks and under which quorum rule. We present \sage{} (Shadow-Anchored Graceful Evolution),
+a certified authority-boundary design for deterministic-finality engines sharing one fixed,
+identical committee and monolithic state. The source remains the sole finalizer during shadow
+execution; a deliberate certification pause precedes target activation. For arbitrary-subset
+boundary certificates with $n$ validators and at most $f$ Byzantine, correct-signer intersection
+and availability require $q\in((n+f)/2,n-f]$. In this certificate model, $2f+1$ does not ensure
+intersection when $n>3f+1$; the result is not a claim about every BFT protocol. Under a durable
+attestation lock and $q_1>2f$, an $n-f$ \CutCert{} already excludes further source finalization.
+The \FenceCert{} instead supplies manifest- and policy-bound retirement evidence; it is not an
+independent source-exclusion necessity in this locked design. A separate fence-only contract
+requires $q_F+q_1>n+f$ and is available exactly when $q_1>2f$. These conditions apply known
+quorum-intersection arguments to a migration-specific authority transfer. \ManCert{} authenticates
+the migration body, while \AbortCert{} and \SealCert{} specify a bounded reversible window.
+Bounded TLA+/TLC models with falsifying controls check finite instances but do not establish
+implementation refinement. Concurrent-process controls on a partial PoA-to-HotStuff path with a
+crash-only source observe conflicts at an unsafe threshold ($5/5$ trials) and none at a safe one
+($0/5$); at a shared safe threshold, the \CutCert{} gate refuses $10$ uncertified crossings
+accepted by an ungated control. These constructed controls do not execute the complete
+committee-wide certificate path or measure its end-to-end cost.
+\end{abstract}
+
+\begin{keyword}
+Consensus migration \sep Byzantine fault tolerance \sep Permissioned blockchain \sep
+Quorum intersection \sep Live upgrade \sep Model checking
+\end{keyword}
+
+\end{frontmatter}
+
+\input{sections/introduction}
+\input{sections/related}
+\input{sections/model}
+\input{sections/protocol}
+\input{sections/analysis}
+\input{sections/evaluation}
+\input{sections/discussion}
+\input{sections/conclusion}
+
+\section*{CRediT authorship contribution statement}
+\textbf{Tuan-Dung Tran:} Conceptualization, Methodology, Formal analysis, Software, Investigation,
+Validation, Writing -- original draft, Writing -- review \& editing, Visualization.
+\textbf{Nguyen Thai Cong:} Methodology, Validation, Writing -- review \& editing, Supervision.
+
+\section*{Declaration of competing interest}
+The authors declare that they have no known competing financial interests or personal relationships
+that could have appeared to influence the work reported in this paper.
+
+\section*{Data availability}
+The Rust implementation, TLA+/TLC models, experiment configurations, fixed seed lists, raw results,
+and frozen vector figures are provided as supplementary material and will be deposited in a public
+archive with a persistent identifier upon acceptance. Editable figure specifications and a
+hash-checked presentation rebuild are included. They regenerate the six figures from retained
+inputs, not missing historical trials or the unexecuted complete protocol.
+
+\bibliographystyle{elsarticle-num}
+\bibliography{references}
+
+\appendix
+\input{sections/appendix}
+
+\end{document}

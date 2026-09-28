@@ -1,0 +1,132 @@
+% ===================================================================== INTRODUCTION
+\section{Introduction}
+\label{sec:intro}
+
+Permissioned blockchains may need to replace a consensus engine to change their fault model,
+finality semantics, or operating regime. Even with an identical validator committee on both sides,
+this is not a routine software upgrade: source and target engines can recognize different quorums
+and different points of irreversibility. If validators transfer authority at different boundaries,
+one may authorize source history while another commits an incompatible target history. The
+process controls in \cref{sec:rq2} exercise threshold-induced target conflicts and gate
+authorization, but do not reproduce the full cross-domain source-retirement adversary.
+
+One operational answer is to halt service for a controlled transition. Hyperledger Fabric's
+documented Raft-to-BFT migration enters maintenance mode, rejects normal transactions, restarts
+ordering nodes, and does not permit a return to Raft after BFT begins committing
+\cite{fabric,fabricbftmigration}. Runtime switching offers a different point of comparison:
+BFTBrain selects among BFT protocols in one cluster~\cite{bftbrain}, Cox switches among BFT
+algorithms with checkpoint and recovery mechanisms~\cite{cox}, and ATBFT alternates BFT
+modes~\cite{atbft}. These systems do not reduce to a generic quorum-threshold change, and their
+handoff mechanisms deserve comparison on their own terms (\cref{sec:related}). Our question is
+more specific: for one fixed, identical committee, how can a source remain authoritative while a
+target checks finalized state, and how can the subsequent boundary, source retirement, and
+provisional target authority be certified? The handoff deliberately pauses finalization while
+certificates are collected; it is not uninterrupted consensus.
+
+\paragraph{Boundary agreement and source retirement}
+Consider one committee $\VM$ of $n$ validators, at most $f$ of them Byzantine, with $n\ge 3f+1$. The
+first obligation concerns the \emph{boundary certificate}. A certificate of $q$ matching attestations
+must be formable when $f$ validators are silent, so $q\le n-f$. Two conflicting certificates must
+share a correct signer, so $2q-n>f$. Together these give
+\begin{equation}
+  \tfrac{n+f}{2} \;<\; q \;\le\; n-f .
+  \label{eq:intro-window}
+\end{equation}
+For an arbitrary-subset boundary certificate, the familiar threshold $2f+1$ lies in this window
+only when $n=3f+1$ (\cref{fig:quorum}, panel~a). On a larger committee it no longer guarantees a
+correct common signer. This does not classify protocols with restricted voting sets or different
+fault assumptions. \sage{} chooses $q=n-f$, the largest available threshold, not the only safe one.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_quorum.pdf}
+\caption{Quorum geometry. (a)~Safe and available boundary thresholds by committee.
+(b)~Fence-only exclusion contract at $n=7$, $f=2$. The circled $(4,5)$ point is an inadmissible
+source policy, not a counterexample to the locked \sage{} design; the square marks $(5,5)$.}
+\label{fig:quorum}
+\end{figure*}
+
+A certificate that records agreement but imposes no source-voting restriction does not by itself
+transfer authority. To characterize this case separately, let $q_1$ be a source finalization quorum
+that could remain active and $q_F$ the quorum that signs a durable \emph{source fence}. The
+\emph{fence-only exclusion contract} is
+\begin{equation}
+  q_F + q_1 \;>\; n + f ,
+  \label{eq:intro-fence}
+\end{equation}
+which forces every fence quorum and every admitted residual source quorum to share a correct
+validator. \Cref{th:authority-exclusion} shows that \eqref{eq:intro-fence} excludes residual source
+finalization even when the fence certificate reaches only a target quorum.
+\Cref{th:fence-admission} shows that such a fence is available if and only if $q_1>2f$, with $q_F=n-f$
+always sufficient. The rule is sharp. At $(n,f,q_1,q_F)=(7,2,4,5)$ equality holds, so a majority-based
+source is rejected at admission rather than silently deployed (\cref{fig:quorum}, panel~b).
+The two inequalities are logically independent over arbitrary parameter tuples
+(\cref{prop:independence}); this does not establish that two separate certificates are necessary
+inside every migration protocol.
+
+In the \emph{locked} \sage{} design, each readiness signer durably stops source authorization
+above its candidate boundary before releasing its share. An $n-f$ \CutCert{} then retires at least
+$n-2f$ correct signers, leaving at most $2f<q_1$ possible source voters. It already guarantees
+source quiescence, including after restart (\cref{lem:fence-live}). \FenceCert{} is retained as
+explicit evidence tying durable retirement to the complete manifest, engine generation, and admitted
+policies, not as an additional safety necessity for that locked profile
+(\cref{prop:retirement-evidence}). This dependency is part of the design rather than a claim that
+removing each certificate must cause a fork.
+
+\paragraph{Design}
+\sage{} permits at most one finalizing engine throughout the handoff. During dual-run, the legacy engine
+$\Csrc$ remains the only finalizer. The target $\Ctgt$ re-executes the same finalized blocks without
+proposing, so divergence becomes observable before target decisions can bind the chain. After a
+stability window, validators attest to one boundary tuple, and $n-f$ matching attestations form a
+\CutCert. Separate certificate domains then take over the remaining obligations. An $n-f$ \ManCert{}
+authenticates the complete migration manifest. A $q_F$ \FenceCert{} provides policy-bound evidence
+that at least $q_F-f$ correct signers durably installed the specified source fence
+(\cref{prop:retirement-evidence}); it does not imply installation by every validator.
+Target authority requires both certificates and a local durable fence. \AbortCert{} and \SealCert{} use a
+terminal authority domain. An abort before the deadline $\hr$ restores the certified anchor under a
+\emph{fresh} source generation and never revives the fenced one. Only a seal promotes the target
+prefix to absolute finality.
+
+\paragraph{Contributions}
+This paper makes four contributions.
+\begin{enumerate}[leftmargin=*,label=\textbf{C\arabic*.}]
+  \item \textbf{Migration-specific obligations, not new quorum arithmetic.} For a fixed committee,
+  we distinguish agreement on an arbitrary-subset boundary \eqref{eq:intro-window} from exclusion
+  of residual source authority under a fence-only contract \eqref{eq:intro-fence}. Both inequalities
+  instantiate established Byzantine-quorum intersection~\cite{byzantinequorums}. The contribution
+  is to identify which obligation each migration state and certificate witnesses: under durable
+  Rule~\ref{rule:lock} and the admitted $q_1>2f$ policy, \CutCert{} signers already stop source
+  progress, whereas \FenceCert{} certifies later manifest- and policy-bound retirement by its
+  correct signers. We do not claim that the latter is independently required for source exclusion
+  in this locked design.
+  \item \textbf{A certified cross-engine handoff design.} Under an abstract engine interface,
+  \sage{} retains one finalizer during shadow execution, commits a boundary \CutCert{},
+  authenticates the complete manifest, records durable source fencing, and admits provisional
+  target finality only after the specified certificate and local-fence gates. Certified abort
+  returns to the anchor in a fresh source generation; certified seal makes the target prefix
+  absolute. Signed receipts carry the client-visible finality tier.
+  \item \textbf{Bounded formal evidence with falsifying controls.} TLA+ models checked with TLC
+  exercise partial certificate delivery, per-validator knowledge, durable fence installation,
+  crash--restart, and Byzantine participation in both engines. Separate finite models examine
+  fixed-candidate agreement at $n\in\{4,7,10\}$, manifest agreement, and absolute-finality
+  reversion. Broken controls are falsified by TLC; these finite checks are not an implementation
+  refinement argument.
+  \item \textbf{Separated cost and authorization evidence.} A deterministic simulator reports
+  event-time costs and parameter sensitivity. Concurrent TCP processes in a PoA-to-HotStuff
+  subset exercise constructed threshold conflicts, gate refusal, crash--restart, and convergence
+  after a partition. They do not execute the complete networked certificate and terminal path,
+  or an authentic external switching baseline.
+\end{enumerate}
+
+Here ``live migration'' means continued source service during preparation followed by a certification
+pause, not uninterrupted block production. The pause bound is conditional on common readiness,
+certificate delivery, durable-write bounds, and target liveness (\cref{th:liveness}). The evaluated
+network path is a \CutCert-gated local-fence subset of the design, with a crash-only source;
+committee-wide manifest, fence, and terminal stages are not evaluated end to end. Neither its
+simulator timings nor its constructed process controls establish full-protocol performance.
+
+The rest of the paper is organized as follows. \Cref{sec:related} positions \sage{} against
+reconfiguration, deployed transitions, and runtime switching. \Cref{sec:model} fixes the system and
+threat model, \cref{sec:protocol} specifies the protocol, and \cref{sec:analysis} proves its
+properties. \Cref{sec:eval} reports the evaluation, \cref{sec:discussion} discusses generality and
+scope, and \cref{sec:conclusion} concludes.

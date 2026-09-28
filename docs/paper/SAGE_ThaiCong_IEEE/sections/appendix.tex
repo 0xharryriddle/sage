@@ -1,0 +1,145 @@
+% ===================================================================== APPENDICES
+\section{Deferred proofs}
+\label{app:proofs}
+
+\begin{proof}[Proof of \cref{lem:replay}]
+By \cref{as:exec,as:metadata}, each suffix transition is a deterministic function of the ordered
+transactions and the parent state. Replaying the same sequence from $X_{\hs-1}$ therefore reproduces
+every intermediate state and root. Without \cref{as:metadata}, no equivalence follows. The
+manifest-bound $r_{\mathrm{ctx}}$ guards admission of missing, reordered, or mismatched replay
+context; this proof does not establish executed application replay.
+\end{proof}
+
+\begin{proof}[Proof of \cref{th:rollback}]
+Only $[\hs,h_a]$ is provisional. The retained $\Csrc$ certificate, \CutCert{} uniqueness
+(\cref{th:unique}), local-tip validation, and legacy safety together fix a unique absolutely final
+anchor $X_{\hs-1}$. Local restoration discards only the suffix and restores that state without
+changing committee authority. Adopting a valid $n-f$ \AbortCert{} additionally moves authority to
+$\Csrc^{g_1'}$ with $g_1'>g_1$, while $g_1$ stays fenced (\cref{def:fencecert}). A resume state with a
+different root fails manifest check~(iii). A distinct state with the same root would require a
+collision, which \cref{as:crypto} excludes. Every executing validator restores the same anchor, so
+agreement on the trigger is unnecessary for integrity. It is, however, necessary for committee
+convergence, which this theorem does not claim.
+\end{proof}
+
+\begin{proof}[Proof of \cref{th:unforge}]
+(i)~The \CutCert{} and the local-tip check bind the parent and root to the legacy-finalized boundary.
+Changing them requires either a correct signer to sign a body it rejects, a forgery, or a collision.
+(ii)~Two $n-f$ \ManCert{}s intersect in a correct signer (\cref{lem:qi}). That signer's
+one-body-per-epoch rule forbids shares on two distinct body hashes, and the durable adoption slot
+prevents local replacement.
+\end{proof}
+
+\section{Formal specification and bounded checks}
+\label{app:spec}
+The guarded commands below project authority transitions on
+$(\mathit{phase},\mathit{streak},\Auth,\hs,\mathit{cert})$, with
+$\mathit{phase}\in\{\phase{v1},\phase{dual},\phase{v2},\phase{rollback},\phase{sealed}\}$.
+These are a design-level projection, not a mechanized refinement of the live controller;
+certificate, timer, recovery, and committed-block events may reconsider the guards. The
+Rule~\ref{rule:lock} readiness identity and source prohibition are required durable state but
+absent from the projected tuple: no phase flag proves their recovery. The commands are
+\begin{align*}
+g_1:&\ \phase{v1}\wedge h\ge\hd \;\Rightarrow\; \mathit{phase}:=\phase{dual};\\
+g_2:&\ \phase{v2}\wedge h<\hr\wedge \mathrm{ValidAbortCert}(\beta,g_1')\wedge g_1'>g_1\\
+    &\quad\Rightarrow \mathsf{Init}(\Csrc^{g_1'},X_{\hs-1}),\ \Auth:=\Csrc^{g_1'},\ \mathit{phase}:=\phase{rollback};\\
+g_3:&\ \phase{dual}\wedge h\ge\hc-1\wedge\mathrm{Ready}(h)\wedge\CutCert(\beta)\\
+    &\quad\wedge\ManCert(\mathcal M)\wedge\FenceCert(\beta,\mathcal M)\wedge\mathrm{fence}_i\\
+    &\quad\wedge\ h=\hb\wedge\hb+1<\hr\\
+    &\quad\Rightarrow \hs:=\hb+1,\ \mathsf{Init}(\Ctgt,r_{\hb}),\ \Auth:=\Ctgt,\ \mathit{phase}:=\phase{v2};\\
+g_4:&\ \phase{dual}\wedge\neg\CutCert(\beta)\;\Rightarrow\;\mathit{phase}:=\phase{dual};\\
+g_5:&\ \phase{v2}\wedge h\ge\hr\wedge\mathrm{ValidSealCert}\;\Rightarrow\;\mathit{phase}:=\phase{sealed}.
+\end{align*}
+Abort ($g_2$) has priority over cutover. A local timeout or manifest error may restore state and emit
+an AbortVote, but only $g_2$ changes authority and only $g_5$ promotes absolute finality.
+
+\begin{table*}[t]
+\centering
+\caption{Current model--implementation correspondence and its boundary. A row naming a required
+trace does not claim that the trace was collected.}
+\label{tab:conformance-boundary}
+\small
+\renewcommand{\arraystretch}{1.12}
+\begin{tabularx}{\textwidth}{@{}L{0.23\textwidth}YL{0.34\textwidth}@{}}
+\toprule
+\textbf{Decision / state} & \textbf{Established comparison} & \textbf{Not established by that comparison} \\
+\midrule
+Boundary quorum and committed vector & Same-side attestation subsets run through the shared Rust gate; exact finite outcome-set equality & Message serialization, intermediate source votes, network delivery and crash-prefix traces \\
+Manifest, fence, activation & Per-validator fence-only model; separate component predicates and durable-record operations & Full runtime transition simulation relation; readiness-lock recovery and certificate dissemination \\
+Abort, seal, fresh generation & Separate bounded terminal/rollback model and component logic & End-to-end terminal transport, source restart, effective client finality and contextual application replay \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\paragraph{Partial-delivery model for cross-engine exclusion}
+A separate fence-only TLA+ module discharges the installed-fence premise rather than assuming it.
+It omits readiness attestation and its source-voting prohibition: activating without a fence in
+that model does not represent deleting only \FenceCert{} from the admitted locked design. Its
+state is per validator:
+$\mathit{cutcertSeen}[v]$, $\mathit{manifestAdopted}[v]$, $\mathit{fenceDurable}[v]$,
+$\mathit{fenceShared}[v]$, $\mathit{targetActive}[v]$, $\mathit{sourceAuthorized}[v]$, and
+$\mathit{generation}[v]$. Delivery is arbitrary; no action forces the \CutCert{} or a fence share
+to reach every validator. Restart clears volatile projections, while the modeled fence and
+prior-source-authorization records survive. Crashes interleave abstract durable transitions,
+not every concrete controller write. A Byzantine validator may share without installing a fence
+and may still authorize source finalization at or above the boundary. The checked invariants are
+cross-engine predicates: no residual source quorum once target authority is exposed anywhere, no
+correct fence share before its durable write, no activation without a durable local fence, and no
+source authorization in a fenced generation. They hold at $n=4,f=1$ and $n=5,f=1$ with $q_1=q_F=n-f$,
+under symmetry reduction over correct and Byzantine identities. TLC must falsify four controls, and
+reports the expected counterexample in each: an inadmissible quorum pair at $n=4$; the parameters
+$(7,2,4,5)$ of \cref{cor:cross-split}; a dropped install-before-share order; and \CutCert-only
+activation. A \emph{hold} verdict requires exhausting the reachable space, whereas falsification stops
+at the first trace. An exhaustive faithful $n=7$ run exceeded our budget with about $2.5\times10^5$
+states still queued, so it yields no verdict and none is claimed.
+
+The faithful bounds span minimal BFT size ($n=4,f=1$) and overprovisioning ($n=5,f=1$), not a
+cutoff theorem. Arbitrary delivery and restart interleavings cover modeled adoption,
+installation, sharing, and activation at those sizes, but not filesystem atomicity, torn writes,
+buffered signatures, or Rule~\ref{rule:lock} persistence. No finite run covers all larger
+committees or concrete crash points; the size-parametric intersection proof and adapter storage
+obligations bear those responsibilities.
+
+\paragraph{Boundary, manifest, and rollback models}
+The boundary model assumes the fence and checks every binary split at $n\in\{4,7,10\}$; blind
+controls remove the gate. The $n=4,f=1$ manifest model assumes a one-body-per-epoch correct signer and
+omits gossip. The rollback model checks no absolute reversion, bounded provisional state, fail-closed
+context admission, and $n-f$-gated abort and seal, while abstracting local restoration. A supplementary
+model with partially overlapping or disjoint migration and target committees finds no counterexample
+to boundary agreement when the gate uses $\max(|V_M|-f_M,|V_T|-f_T)$, and its smaller-threshold control
+fails. This is finite safety evidence, not a joint-quorum theorem. None of the models covers retry,
+byte serialization, replay execution, general partition liveness, or refinement.
+
+\paragraph{Model--code conformance}
+TLC exports the sets of committed-boundary vectors: $31$, $255$, and $2047$ outcomes for the faithful
+models at $n=4,7,10$, and $81$ and $2187$ for the blind models at $n=4,7$. A Rust test independently
+enumerates splits and attestation subsets, applies the runtime's shared gate predicate, and requires
+exact set equality. The faithful sets contain no forked vector; the broken sets contain $50$ and $1932$.
+This is bounded outcome conformance with a firing control, not implementation refinement.
+
+\Cref{tab:conformance-boundary} identifies the gap between finite outcome equality and a trace
+relation. For Rule~\ref{rule:lock} source exclusion, a corresponding model first needs the
+durable readiness identity and prohibition omitted by the fence-only module. A relation would
+then project durable controller states into that model and show that every externally visible
+source authorization follows a permitted step, with internal computation mapped to stuttering
+steps. Equal terminal outcome sets cannot establish this prefix property: an illegal intermediate
+vote may disappear from the final vector. The prohibition must survive restart; neither the
+extended model nor an implementation refinement has been established.
+
+\section{Worked migration example}
+\label{app:example}
+Consider a design-level execution with $n=7$, $f=2$, $q_1=q_F=5$, $\kappa=8$, and
+$(\hd,\hc,\hr)=(20,70,110)$. The window \eqref{eq:window} is $(4.5,5]$, so $q=5=n-f$.
+The source policy is admissible because $q_F+q_1=10>9=n+f$; a four-vote majority would be
+rejected (\cref{cor:cross-split}), and \cref{th:fence-admission} gives exactly $q_1-2f=1$
+admissible fence size. At height~69 the last eight shadow verdicts match, and each eligible,
+ready validator attests to $\beta=\langle\mathrm{cid},e,69,\Hash(B_{69}),r_{69}\rangle$ before
+issuing any source authorization at height~70 (\cref{rule:lock}). Five matching attestations form
+the \CutCert{} and fix $\hs=70$. Each validator that advances then adopts the five-share \ManCert,
+durably fences $\Csrc^{g_1}$ at $h\ge70$, and releases its fence share. Five shares form the
+\FenceCert; validators receiving and verifying it with the matching durable local records may
+initialize $\Ctgt.\mathsf{Init}(r_{69},70)$. If a target stall at height~74 leads to a five-share
+\AbortCert{} binding $g_1'>g_1$, validators adopting it restore $X_{69}$ under
+$\Csrc^{g_1'}$ and keep $g_1$ fenced. Replay of heights $70$--$74$ requires \cref{as:metadata}
+and matching context. Without an abort, adopting a valid \SealCert{} after height~110 yields
+\phase{sealed}. This illustrates specified transitions, not an executed end-to-end campaign.

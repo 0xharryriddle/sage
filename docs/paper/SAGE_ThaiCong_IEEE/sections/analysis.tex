@@ -1,0 +1,449 @@
+% ===================================================================== ANALYSIS
+\section{Analysis}
+\label{sec:analysis}
+
+\subsection{Assumptions}
+\begin{assumption}[Engine correctness]
+\label{as:engines}
+Each engine conforms to \cref{def:engine}. $\Csrc$ is safe under its admitted source quorum.
+$\Ctgt$ is always safe and, after GST, live under $q_2$ with $2q_2-n>f$ and $q_2\le n-f$.
+\end{assumption}
+
+\begin{assumption}[Deterministic execution]
+\label{as:exec}
+$\delta_{\mathrm{exec}}$ is deterministic on well-formed blocks: correct validators that apply the same
+sequence from the same state compute identical roots.
+\end{assumption}
+
+\begin{assumption}[Metadata-independent reversible window]
+\label{as:metadata}
+For transactions finalized in $[\hs,\hr)$, execution is a function only of the ordered transactions
+and the parent state. It excludes engine-specific metadata and live external inputs that may differ
+between the target attempt and legacy replay.
+\end{assumption}
+
+\begin{assumption}[Cryptography]
+\label{as:crypto}
+$\mathrm{root}(\cdot)$ and $\Hash$ are collision resistant, signatures are EUF-CMA secure, and the
+adversary controls at most $f$ keys, with $n\ge3f+1$.
+\end{assumption}
+
+We write $\mathrm{committed}_i(h,B)$ when correct validator $i$ holds a finalization certificate for
+$B$ at height $h$. Two correct validators \emph{conflict} at $h$ if their certified blocks have
+different execution-state roots. Engine-tagged block hashes alone do not define a cross-engine conflict.
+Throughout, $|S\cap T|\ge|S|+|T|-n$ for any $S,T\subseteq\VM$, and a set of more than $f$ validators
+contains a correct one. Every quorum statement below follows from these two facts.
+
+\subsection{Boundary certificate}
+\begin{lemma}[Quorum intersection]
+\label{lem:qi}
+Any two $(n-f)$-subsets of $\VM$ intersect in at least $n-2f\ge f+1$ validators and therefore share a
+correct validator.
+\end{lemma}
+
+\begin{theorem}[Safe and available threshold window]
+\label{th:window}
+Let a fixed-candidate boundary certificate require $q$ matching attestations. The certificate is
+\emph{available} (formable after GST whenever all correct validators are ready on the same body and
+$f$ validators stay silent) if and only if $q\le n-f$. It is \emph{intersection-safe} (any two
+certificates share a correct signer) if and only if $2q-n>f$. Hence both hold if and only if
+\begin{equation}
+  q\in\Bigl(\frac{n+f}{2},\;n-f\Bigr]\cap\mathbb Z ,
+  \label{eq:window}
+\end{equation}
+a set that is non-empty exactly when $n\ge3f+1$. In particular, $2f+1$ lies in \eqref{eq:window}
+if and only if $n=3f+1$, and $q=n-f$ maximizes the guaranteed correct intersection $2q-n-f=n-3f$.
+\end{theorem}
+\begin{proof}
+\emph{Availability.} If $q>n-f$, the $f$ silent validators leave at most $n-f<q$ signers, so no
+certificate forms. If $q\le n-f$, the $n-f$ correct ready validators deliver $q$ matching shares after
+GST.
+\emph{Intersection.} Two $q$-subsets can be chosen with intersection exactly $\max(0,2q-n)$. If
+$2q-n\le f$, place the whole intersection inside the corrupted set; the two certificates then share no
+correct signer. If $2q-n>f$, every intersection has more than $f$ members and contains a correct one.
+\emph{Window.} Combining the two gives \eqref{eq:window}. The integer $n-f$ lies in the window if and
+only if $2(n-f)-n>f$, that is $n>3f$. For $q=2f+1$, the lower bound requires $4f+2-n>f$, i.e.,
+$n<3f+2$, and with $n\ge3f+1$ this forces $n=3f+1$.
+\end{proof}
+
+\begin{theorem}[Decision uniqueness]
+\label{th:unique}
+Under the one-candidate-body rule of \cref{def:cutcert}, at most one tuple $\beta$ is certified by a
+valid \CutCert{} in epoch $e$. Every correct validator that accepts a \CutCert{} therefore accepts the
+same $\hs$, parent hash, and boundary root.
+\end{theorem}
+\begin{proof}
+Let $\pi$ and $\pi'$ certify $\beta$ and $\beta'$. By \cref{lem:qi} their signer sets share a correct
+validator. That validator signs only its locked tuple in epoch $e$, so $\beta=\beta'$ unless a
+signature is forged, which \cref{as:crypto} excludes.
+\end{proof}
+
+\subsection{Authority transfer}
+The following theorem isolates a fence-only contract: correct fence signers have not authorized
+post-boundary source progress and install their prohibition before sharing. It does not assume the
+readiness lock. Its converse concerns executions admitted by that contract without a different
+source-retirement mechanism, not the locked \sage{} design.
+\begin{theorem}[Cross-engine authority exclusion under partial delivery]
+\label{th:authority-exclusion}
+Let $F$ be the signer set of a valid \FenceCert{} with $|F|=q_F$, and let $L$ be a quorum of size
+$q_1$ under the source engine's native finality policy. Suppose at most $f$ validators are Byzantine,
+$q_F+q_1>n+f$, and every correct fence signer (i)~has issued no source authorization at any
+$h\ge\hs$ and (ii)~durably disables such authorization before releasing its share. Then no source
+quorum finalizes at any $h\ge\hs$. This holds even if the \FenceCert{} reaches only a target quorum.
+Conversely, if $q_F+q_1\le n+f$, there is an execution with partial delivery in which a valid
+\FenceCert{} activates the target and a source quorum still finalizes at $\hs$.
+\end{theorem}
+\begin{proof}
+$|F\cap L|\ge q_F+q_1-n>f$, so $F\cap L$ contains a correct validator $v$. By (i), $v$ contributed no
+source authorization at $h\ge\hs$ before signing, and by (ii) and \cref{def:fencecert} it can
+contribute none afterwards. $L$ therefore lacks a required signature and cannot form. The argument uses
+only the signers' install-before-share order and the intersection bound. It never assumes that any
+other validator received the certificate.
+
+For the converse, let $k=\max(0,q_F+q_1-n)\le f$. Choose $F$ and $L$ with $|F|=q_F$, $|L|=q_1$ and
+$|F\cap L|=k$, which is possible because $q_F+q_1-k\le n$, and corrupt exactly $F\cap L$. The correct
+members of $F$ fence and release shares, so the \FenceCert{} forms and the target activates. The
+adversary withholds the certificate from $L\setminus F$, whose correct members therefore never fence.
+The Byzantine members of $F\cap L$ also sign in the source (\cref{sec:model}), so $L$ finalizes at
+$\hs$.
+\end{proof}
+
+\begin{theorem}[Fence admissibility]
+\label{th:fence-admission}
+For a source policy with quorum $q_1$, there exists a fence quorum $q_F$ that is both available
+($q_F\le n-f$) and excluding ($q_F+q_1>n+f$) if and only if $q_1>2f$. When it exists, $q_F=n-f$ is
+admissible, and the admissible set is the integer interval $(n+f-q_1,\;n-f]$, which contains $q_1-2f$
+values.
+\end{theorem}
+\begin{proof}
+An admissible $q_F$ exists if and only if $n+f-q_1<n-f$, i.e., $q_1>2f$. The interval
+$(n+f-q_1,n-f]$ contains exactly $(n-f)-(n+f-q_1)=q_1-2f$ integers, and its maximum is $n-f$.
+\end{proof}
+
+\begin{corollary}[Fence-only majority-source counterexample]
+\label{cor:cross-split}
+Let $n=7$, $f=2$, $q_F=5$, and let the source finalize with a majority $q_1=4$. Then $q_F+q_1=n+f$,
+so the premise of \cref{th:authority-exclusion} fails. A five-validator target side and a
+four-validator source side can overlap in exactly the two Byzantine validators and both finalize at
+$\hs$. Fencing only the \FenceCert{} signers cannot prevent this fence-only execution. The policy
+$q_1=2f$ is rejected by \cref{th:fence-admission}; this is not an admitted locked execution.
+\end{corollary}
+\begin{proof}
+This is the converse of \cref{th:authority-exclusion} with $k=2$. Label the validators
+$1,\ldots,7$, with $\{4,5\}$ Byzantine. Let $F=\{1,2,3,4,5\}$ fence and activate the
+target, and let $L=\{4,5,6,7\}$ finalize in the source; correct validators $6$ and $7$ have not
+installed a fence. The two sets share only $\{4,5\}$, which sign on both sides by the cross-domain
+capability of \cref{sec:model}. Both sides therefore commit at $\hs$ in the fence-only contract.
+\end{proof}
+
+For a majority source $q_1=\lfloor n/2\rfloor+1$, \cref{th:fence-admission} reduces to $n\ge4f$.
+Hence $(n,f)=(6,1)$ is admissible, while $(7,2)$ and $(20,6)$ are not. \Cref{fig:quorum} visualizes
+the boundary and fence-only conditions. The arithmetic example below does not establish that the
+fence certificate is independently necessary after a durable readiness lock.
+
+\begin{proposition}[Independence of the two inequalities]
+\label{prop:independence}
+Neither the boundary window \eqref{eq:window} nor the fence-only admission inequality
+\eqref{eq:intro-fence} implies the other as an arithmetic condition. (a)~At
+$(n,f,q,q_1,q_F)=(7,2,5,4,5)$ the \CutCert{} threshold is safe and available, but the fence-only
+exclusion inequality fails. (b)~At $(n,f,q,q_1,q_F)=(6,1,3,5,5)$ that exclusion inequality holds
+($10>7$), but the boundary threshold is unsafe ($2\cdot3-6=0\le1$).
+\end{proposition}
+\begin{proof}
+Direct substitution into \eqref{eq:window} and \eqref{eq:intro-fence}, using \cref{cor:cross-split}
+for (a).
+\end{proof}
+
+
+\begin{lemma}[Source quiescence and fence liveness]
+\label{lem:fence-live}
+Assume \cref{rule:lock}, a valid \CutCert{} on $\beta$, and an admitted source policy with $q_1>2f$.
+(i)~No source quorum finalizes at any height $h>\hb$ of generation $g_1$. (ii)~If, in addition, every
+correct validator is eligible to attest and ready on $\beta$ and, after GST, holds $\pi_{\mathrm B}$
+and has durably adopted the same certified $\mathcal M_{\mathrm B}$, then all correct validators
+can supply fence shares. If an available collector receives them within $\Delta$ of the last
+durable fence write, it can form a \FenceCert{} with any admissible $q_F\le n-f$ from those
+shares; its local verification time is additional.
+\end{lemma}
+\begin{proof}
+(i)~$\pi_{\mathrm B}$ has $n-f$ signers, at least $n-2f$ of them correct; call this set $A$. Every
+validator outside $A$ is either Byzantine or a correct non-signer, so $|\VM\setminus A|\le 2f<q_1$.
+Any source quorum above $\hb$ therefore contains a member of $A$. By \cref{rule:lock}, that member
+attested before any source authorization above $\hb$ and cannot authorize one afterwards. Its
+prohibition is committed before its attestation becomes visible: a crash before the commit
+releases no attestation, while one afterwards reloads the prohibition before source use. Thus
+restart preserves the abstract invariant if the durable store meets \cref{rule:lock}; no runtime
+crash result is inferred. Delayed signatures cannot form a source quorum above $\hb$: every
+such quorum needs an authorization a member of $A$ never issued.
+(ii)~Eligibility means that each correct validator has issued no source authorization above $\hb$.
+Given common readiness, it attests under \cref{rule:lock} before any such authorization; the rule
+then prohibits later ones. All $n-f$ correct validators satisfy the no-prior-authorization
+condition of \cref{def:fencecert}, install the fence after manifest adoption, and release a share.
+Those $n-f\ge q_F$ shares suffice at the collector under the stated delivery bound.
+\end{proof}
+
+\begin{remark}
+Part~(i) is sufficient for source exclusion in the admitted locked design: no \FenceCert{} is used
+in its proof. Removing only that certificate, while preserving the lock, $q=n-f$, and $q_1>2f$,
+cannot create residual source finalization. The counterexample in \cref{cor:cross-split} does not
+satisfy these premises. Part~(ii) requires eligibility as well as readiness: a correct validator
+that voted above $\hb$ before learning of $\beta$ cannot later sign a fence share. In the worst
+case only the $n-2f$ correct attesters remain eligible; correct-only formation then requires
+$q_F\le n-2f$, compatible with \cref{th:fence-admission} only when $q_1>3f$. Without the
+attestation prohibition, fence-only exclusion still follows from \cref{th:authority-exclusion}
+once a valid \FenceCert{} forms, but such prior votes may leave the boundary stale.
+\end{remark}
+
+\begin{proposition}[Policy-bound retirement evidence]
+\label{prop:retirement-evidence}
+Under \cref{as:crypto,def:fencecert}, a valid \FenceCert{} with $q_F$ distinct shares attests that
+at least $q_F-f$ correct signers durably adopted the same complete manifest and installed the
+specified generation fence before sharing. A \CutCert{} alone does not attest these later actions.
+This is an evidence property, not additional source-exclusion safety under
+\cref{lem:fence-live}(i), and it does not imply adoption by every validator.
+\end{proposition}
+\begin{proof}
+At most $f$ shares belong to Byzantine validators. Each remaining signer releases its share only
+after the manifest and fence writes, and the signed identity binds the manifest, boundary,
+generation, and quorum policies. Signature unforgeability and collision resistance preserve this
+binding. Conversely, an execution may form a \CutCert{} and delay all manifest messages; its correct
+attesters remain locked but have not adopted a manifest or installed its policy-bound fence. Thus
+the boundary certificate does not certify those writes. A remote verifier still trusts correct
+signers' specified storage behaviour; a signature is not hardware attestation of an actual flush.
+\end{proof}
+
+\paragraph{Alternative source-adapter contract}
+Retirement need not occur at readiness in every possible adapter. The following conditional
+alternative does not replace \cref{rule:lock} in the protocol above. It instead asks whether a
+source-finalized control block can itself retire the source before a later activation certificate.
+
+\begin{proposition}[Retirement under final-parent mediation]
+\label{prop:final-parent-retirement}
+Fix a source generation $g$ with at most $f$ Byzantine validators. Assume native source safety:
+valid finality evidence authenticates a unique parent-linked finalized prefix, and every accepted
+source certificate contains $q_1>f$ distinct authorized signers. The condition $q_1>f$ alone does not establish source safety.
+Suppose every correct validator, before creating any externally releasable source authorization,
+adopts authenticated finality for the exact finalized parent at the preceding height.
+Adopting a designated Boundary control block $B$ at $\hb$ atomically and durably installs a stop on
+all source authorization above $\hb$ in $g$, before signing services can use $B$ as a parent.
+All proposal, vote, catch-up and buffered-release paths serialize against that record and recheck
+it before release. Restart reloads and validates the stop before enabling those paths; ambiguous
+recovery refuses. If $B$ finalizes, no source block above $\hb$ finalizes in $g$.
+This conclusion does not require an activation certificate.
+\end{proposition}
+\begin{proof}
+Suppose a later source block finalizes in $g$. Prefix uniqueness gives a finalized first child
+$C$ of $B$ at $\hb+1$. Its certificate contains a correct signer $v$, since $q_1>f$.
+Before authorizing $C$, $v$ had to adopt its exact finalized parent $B$; that adoption installed
+the stop before $B$ became usable by signing services. Thus $v$ could not authorize $C$,
+contradicting the certificate. An earlier prepared or buffered authorization cannot bypass this
+order: its creation also requires adoption of $B$. Using a different finalized parent at $\hb$
+contradicts prefix uniqueness. A validator that has not adopted $B$ cannot authorize its child,
+and correct restart preserves the prohibition. The signer $v$ need not belong to the Boundary signer set:
+the adapter rule applies to every correct signer, including non-recipients until they adopt $B$.
+\end{proof}
+
+\begin{remark}[Scope of the alternative]
+Under these stronger premises, a later certificate can remain a target-authorization and
+prerequisite-evidence gate without being independently necessary for source retirement.
+The fence-only inequality of \cref{th:authority-exclusion} is not a necessity result for this stronger adapter;
+native source-safety and governance admission requirements remain separate.
+Readiness need not install this stop, allowing the source to finalize $B$.
+A losing Boundary vote alone does not retire the source: a valid ordinary winner may permit
+its next child while retaining the losing per-height vote lock. This is not a liveness result.
+The final-parent restriction is not established for the evaluated implementation;
+neither the reported timings nor the existing bounded models validate this alternative.
+\end{remark}
+
+\subsection{Handoff safety and completion}
+\begin{lemma}[Single finalizer during dual-run]
+\label{lem:single}
+For every $h\in[\hd,\hs)$, only $\Csrc$ finalizes, and it finalizes at most one block at $h$.
+\end{lemma}
+\begin{proof}
+In \phase{dual}, $\Auth=\Csrc^{g_1}$ and the shadow only validates finalized blocks
+(\cref{def:shadow}). \Cref{as:engines} gives uniqueness.
+\end{proof}
+
+\begin{theorem}[Successful-handoff prefix safety]
+\label{th:safety}
+Assume engine safety, a unique \CutCert, an accepted complete manifest, and no certified abort.
+For the admitted locked protocol assume durable \cref{rule:lock} with $q_1>2f$;
+the distinct fence-only argument instead assumes a valid \FenceCert{} satisfying
+\cref{th:authority-exclusion}. Also assume target initialization and authorization from the
+certified root under \cref{def:bootstrap,def:fencecert}. Then correct validators completing the
+forward handoff commit one common legacy prefix followed by one target extension from
+$r_{\hs-1}$, with no conflicts at any height.
+\end{theorem}
+\begin{proof}
+Legacy safety covers $h<\hd$ and \cref{lem:single} covers $[\hd,\hs)$. Either
+\cref{lem:fence-live}(i) or \cref{th:authority-exclusion}, according to the chosen premise,
+prevents any competing source commit at $h\ge\hs$, including under partial delivery.
+\Cref{th:unique} fixes the parent and root, and \cref{th:unforge} fixes the complete accepted body.
+Target initialization starts from $r_{\hs-1}$ only after the local manifest and fence are durable, and
+target safety then yields a single canonical extension.
+\end{proof}
+
+\begin{theorem}[Conditional completion]
+\label{th:liveness}
+After GST, suppose every correct validator is eligible to attest and ready on the same fixed
+candidate $\beta$, can sign the same valid manifest body, and remains available through handoff.
+Assume \cref{rule:lock}, an admitted pair $(q_1,q_F)$ with $q_1>2f$, $q_F\le n-f$ and
+$q_F+q_1>n+f$, $\hs<\hr$, bounded local verification and durable writes, and certificate collection
+and delivery bounds for every stage, including collector failover and retransmission. Correct
+validators durably adopt the certified manifest before installing and sharing its fence, and no
+certified abort interrupts the forward handoff. Finally,
+suppose the initialized target supplies a finite bound $T_{\mathrm{first}}$ to its first finalization.
+Then the forward handoff reaches a first target commit. Let $T_{\mathrm{ready}}$ bound the time from
+the last source commit to common eligibility and readiness, including boundary delivery and shadow
+execution. If this additional bound exists, the source-to-first-target pause satisfies
+\begin{equation}
+  \begin{aligned}
+  T_{\mathrm{bdy}}\le{}& T_{\mathrm{ready}}+\Delta_B+\Delta_M+\Delta_F\\
+  &+T_B(n)+T_M(n)+T_F(n)+T_{\mathrm{init}}+T_{\mathrm{first}},
+  \end{aligned}
+  \label{eq:tbdy}
+\end{equation}
+Here $\Delta_{\{B,M,F\}}$ bound collection and delivery of each certificate;
+$T_{\{B,M,F\}}(n)$ bound local signing, verification, and durable stage work; and
+$T_{\mathrm{init}}$ bounds durable target initialization. The target-specific
+$T_{\mathrm{first}}$ is an adapter obligation, not a universal two-message-delay bound for BFT
+targets. This theorem assumes common-candidate convergence and successful certificate transport;
+it proves neither of them. It also does not bound time before GST, indefinite crashes, incompatible
+candidate locks, retry, or terminal abort/seal convergence. If a partition blocks any certificate,
+activation stays pending; healing helps only if the same tuple remains viable and its shares are
+retained or retransmitted.
+\end{theorem}
+\begin{proof}
+Correct attestations name the immutable $\beta$, so $n-f$ of them form the unique \CutCert{}
+(\cref{th:unique}) within the assumed collection/delivery bound. All correct validators accept and
+sign the same manifest, which forms the \ManCert{} under its transport bound.
+Each correct validator holds the delivered $\pi_{\mathrm B}$ and verifies and durably adopts
+$\mathcal M_{\mathrm B}$ within the local stage bounds. These facts discharge the premises of
+\cref{lem:fence-live}(ii): the $n-f\ge q_F$ correct validators can install fences and supply enough
+shares without Byzantine cooperation. Fence transport delivers their certificate, and the target's
+assumed $T_{\mathrm{first}}$ bound yields its first commit. Summing the sequential stage costs
+gives \eqref{eq:tbdy}.
+\end{proof}
+
+\subsection{Rollback and manifest integrity}
+\begin{lemma}[Replay equivalence]
+\label{lem:replay}
+Under \cref{as:exec,as:metadata}, replaying the ordered transactions of a discarded suffix
+$[\hs,h_a]$ onto $\Csrc^{g_1'}$ from $X_{\hs-1}$ reproduces the target attempt's state sequence and
+roots. Receipts and events outside $\delta_{\mathrm{exec}}$ are not claimed. If \cref{as:metadata}
+fails, equivalence is not guaranteed, and missing or mismatched bound context makes automatic replay
+fail closed.
+\end{lemma}
+
+\begin{theorem}[Rollback-anchor integrity]
+\label{th:rollback}
+A correct validator that performs anchor-based restoration at $h_a<\hr$ discards only its provisional
+suffix, restores $X_{\hs-1}$, reverts no absolutely final block, and rejects any resume state whose
+root differs from $r_{\hs-1}$. A valid $n-f$ \AbortCert{} binding $g_1'>g_1$ separately gates the
+committee-scoped transition to $\Csrc^{g_1'}$, and $g_1$ stays fenced. These properties hold without
+\cref{as:metadata}.
+\end{theorem}
+
+\begin{theorem}[Complete-manifest integrity and agreement]
+\label{th:unforge}
+Under \cref{as:crypto}, local boundary verification, and one manifest share per correct validator per
+epoch: (i)~no adversary controlling at most $f$ keys produces an accepted body whose boundary differs
+from the locally finalized state, except with negligible probability; and (ii)~two valid \ManCert{}s
+accepted by correct validators authenticate the same body.
+\end{theorem}
+
+\begin{proposition}[Replay resistance]
+\label{prop:replay}
+A manifest valid for $(\mathrm{cid},e)$ verifies for $(\mathrm{cid}',e')\neq(\mathrm{cid},e)$ only with
+negligible probability, since both values are inside every signed message.
+\end{proposition}
+
+\ref{app:proofs} gives the proofs of \cref{lem:replay,th:rollback,th:unforge}. The
+rollback-cycle accounting is conditional on a per-epoch retry cap $\rho$ and a progress ticker. Under
+these premises, the time charged to forced rollbacks is at most $\rho(\tau+T_{\mathrm{recover}})$ per
+epoch. This bounds only the charged cycles, not a stall that persists after the cap.
+
+\subsection{Shadow detection is coverage-bounded}
+By \cref{as:exec}, the shadow root is a deterministic function of its inputs. A root-changing
+divergence on an exercising block is detected by a correct validator that performs shadow validation,
+not by a per-block random trial. Let $p_{\mathrm{div}}$ be the probability of a latent divergence
+under a specified workload distribution, and let $u(\kappa)$ be the conditional probability,
+given that divergence, that no block in a length-$\kappa$ window exercises it. Then
+\begin{equation}
+  \Pr[\text{latent divergence unexercised in window}]=p_{\mathrm{div}}\,u(\kappa),
+  \label{eq:coverage}
+\end{equation}
+where $u$ is non-increasing for nested windows under the same workload process. This is a
+coverage identity, not a measured cutover-failure probability: a path that is never exercised has
+$u(\kappa)=1$ for every $\kappa$. An independent-trial decay factor $(1-q)^\kappa$ would require
+independent path-exercising events, which deterministic replication and shared state do not
+guarantee.
+
+
+
+\begin{table}[t]
+\centering
+\caption{Measured single-host Ed25519 share-list cost. ``Sign'' is sequential aggregate CPU time;
+size excludes certificate-body and transport framing. Only aggregate timings were retained.}
+\label{tab:certtiming}
+\small
+\renewcommand{\arraystretch}{1.14}
+\rowcolors{2}{rowtint}{white}
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+$n$ & $n-f$ & Sign ($\mu$s) & Verify p50/p95 ($\mu$s) & Size (B) \\
+\midrule
+\input{tables/certificate_rows.tex}
+\end{table}
+
+\begin{table*}[t]
+\centering
+\caption{Evidence by layer. Theorems assume the stated engine and durable-store contracts;
+bounded checks do not establish their runtime conformance. ``Component'' denotes a Rust unit or
+integration test; ``campaign'' denotes a reported experiment.}
+\label{tab:status}
+\small
+\renewcommand{\arraystretch}{1.16}
+\rowcolors{2}{rowtint}{white}
+\begin{tabularx}{\textwidth}{@{}L{0.17\textwidth}L{0.22\textwidth}YL{0.24\textwidth}@{}}
+\toprule
+\textbf{Element} & \textbf{Proved / model-checked} & \textbf{Implemented} & \textbf{Executed in campaigns} \\
+\midrule
+Boundary \CutCert & \cref{th:window,th:unique}; TLC, $n\in\{4,7,10\}$, all binary splits & Ed25519 $n-f$ certificate; shared gate predicate & RQ1 (simulator); RQ2 (processes) \\
+Cross-engine exclusion & \cref{th:authority-exclusion,th:fence-admission}; TLC partial-delivery, $n\in\{4,5\}$, four falsifying controls & Admission predicate in governance validator and \FenceCert{} verifier; per-validator adopt$\to$install$\to$share$\to$verify order; restart reload & Local fence persistence and restart on the PoA path; committee-wide \FenceCert{} formation over the network is \emph{not} executed \\
+Complete manifest & \cref{th:unforge}; TLC, $n=4$ & \ManCert{} verification; durable one-body-per-epoch slot & Manifest shares are not disseminated by the network path \\
+Attestation lock & \cref{lem:fence-live} proves quiescence assuming Rule~\ref{rule:lock}; persistence not model-checked & Attestation slot and source prohibition are specified; full runtime conformance not established & No crash-point campaign for the complete Rule~\ref{rule:lock} invariant \\
+Abort, seal, rollback & \cref{th:rollback}; TLC rollback model & \AbortCert/\SealCert, terminal lock, local restoration, off-path progress ticker, fail-closed context checks & Context admission (RQ4); no end-to-end certified abort \\
+Client finality tier & -- & Tier inside the signed finality payload; effective promotion requires a separate seal proof & Receipts in process campaigns; certified client reconciliation not exercised \\
+Raft source & Interface-level (\cref{def:engine}) & Raft adapter with internal fence rejection & Component crossing into HotStuff only \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_results.pdf}
+\caption{Evaluation summary. (a)~Process controls separate unsafe-threshold conflicts from
+unauthorized crossings. (b)--(d)~Simulator cutover-evidence latency by seed, committee size, and
+one-way delay; these panels report simulator time, not deployment latency. Whiskers in (c)--(d) show
+retained seed ranges, not confidence intervals.}
+\label{fig:results}
+\end{figure*}
+
+\subsection{Complexity and certificate cost}
+Shadow validation adds no wire messages. With an available collector and bounded delivery to all
+validators, each of the three activation-certificate stages takes $O(n)$ share submissions and
+$O(n)$ certificate deliveries over $O(1)$ post-GST communication rounds. These design-level
+counts exclude unbounded retries and assume the collector/failover and local-work bounds of
+\cref{th:liveness}; they are not measurements of the networked path.
+All-to-all share dissemination instead costs $O(n^2)$ messages per stage. Distributing an
+unaggregated $O(n)$-signature certificate to $n$ validators costs $O(n^2)$ signature words.
+During dual-run each validator performs one off-path re-execution per block, in $O(|B_h|)$
+time, and stores $O(\kappa)$ verdicts, a constant number of $O(n)$ certificates, and at most $\hr-\hs$
+provisional blocks. \Cref{tab:certtiming} reports measured Ed25519 costs. Each share is $72$\,B
+(a $64$-byte signature and an $8$-byte signer index), so the share list occupies $72(n-f)$ bytes.
+This excludes the signed body, collection encoding, and transport framing; it is not a wire-size
+measurement. At $n=200$ the $134$ shares verify in $3.9$\,ms at the median and their payload is
+under $10$\,KiB.
+

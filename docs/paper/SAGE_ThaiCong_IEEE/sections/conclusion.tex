@@ -1,0 +1,31 @@
+% ===================================================================== CONCLUSION
+\section{Conclusion}
+\label{sec:conclusion}
+\sage{} treats engine replacement as a \emph{certified authority boundary} for deterministic-finality
+engines sharing one fixed, identical committee and monolithic state. For arbitrary-subset boundary
+certificates, correct-signer intersection and availability coincide on
+$\bigl(\tfrac{n+f}{2},\,n-f\bigr]$. The resulting restriction on $2f+1$ concerns this certificate
+model, not every BFT protocol. A durable attestation lock and an $n-f$ \CutCert{} already stop source
+finalization under $q_1>2f$, including after restart under the specified persistence contract.
+\FenceCert{} adds manifest- and policy-bound retirement evidence; it is not necessary for that
+exclusion. Separately, the fence-only contract requires $q_F+q_1>n+f$ and is available exactly when
+$q_1>2f$. The contribution is the migration-specific binding of these known quorum arguments to
+durable state and certificate roles, not independent necessity of every mechanism.
+
+Preparation retains one finalizer, while a deliberate certification pause precedes target
+activation. Completion is conditional on an eligible common candidate, certificate transport,
+durable writes, and target liveness. Bounded models provide finite safety evidence, not a
+refinement proof. Concurrent-process controls on the partial, crash-only-source path separate
+unsafe-threshold conflicts ($5/5$ versus $0/5$) from unauthorized crossings ($10/10$ refused by
+the gate and accepted without it). They do not execute the complete committee-wide manifest,
+fence, abort, and seal protocol or establish its performance against external switching systems.
+
+The next empirical requirement is a networked campaign that disseminates the manifest, fence,
+and terminal certificates, tests both certified abort and seal, and injects crashes between
+durable transitions. An admitted, quorum-matched RQ1 would then measure the complete handoff
+and client-visible interruption rather than simulator event time. A common-harness comparison
+with an artifact-backed contemporary switching system and a Fabric-style maintenance procedure
+is also needed before making external performance claims. Close-and-retry after an incompatible
+candidate, joint membership and engine changes, and an implementation refinement argument remain
+separate work. Probabilistic-finality chains, sharded state, and irreversible external effects are
+not covered by the present results.

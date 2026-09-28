@@ -5,13 +5,25 @@ without halting block production. This repository is a Rust protocol artifact
 covering deterministic simulation, experiment generation, manifest validation,
 and an early local multi-validator runtime.
 
-The additional `formal/` design models on this branch are bounded abstractions,
-not implementation or deployment authority. See `formal/README.md` for the
-separate faithful and falsifying-control configurations. This PR retains the
-existing manuscript and results unchanged; the added figure-data generator
-can process fresh CSV inputs, but no new historical campaign data are included.
-Candidate Retry runtime implementation remains outside this PR pending its
-independent exact-byte authorization.
+## Current manuscript
+
+**SAGE: A Certified Cross-Engine Boundary for Fixed-Committee Consensus
+Migration in Permissioned Blockchains** is the current manuscript at
+`docs/paper/SAGE_ThaiCong_IEEE/main.tex`. It uses Elsevier `elsarticle` for
+*Blockchain: Research and Applications*; `_IEEE` in the path is historical.
+The earlier `docs/paper.tex` remains a separate legacy draft. The manuscript
+presents a conditional locked-readiness design, not a fully implemented
+networked handoff or a submission-ready finding. Its presentation build pins
+eight CSV inputs, with three conflicting legacy inputs retained unchanged and
+the paper-specific versions under `results/raw/paper/SAGE_ThaiCong_IEEE/`.
+`rebuild.py --check-data` checks pins; `--verify-rebuild` compares two builds
+and 22 products. Neither reruns historical campaigns or grants runtime authority.
+
+The additional `formal/` design models are bounded abstractions, not
+implementation or deployment authority. See `formal/README.md` for their
+faithful and falsifying-control configurations. Candidate Retry runtime
+implementation remains outside this branch pending independent exact-byte
+authorization.
 
 ## Quick Start
 
@@ -183,7 +195,10 @@ Observed results:
 
 ## Documentation
 
-- `docs/paper.tex` — journal paper draft
+- `docs/paper/SAGE_ThaiCong_IEEE/main.tex` — current canonical manuscript
+- `docs/paper.tex` — retained legacy manuscript draft
+- `docs/ARTIFACT_EVALUATION.md` — scoped claim-to-evidence map
+- `docs/RESPONSE_TO_REVIEWS.md` — historical response and current limitations
 - `docs/guides/experiment_guide.md` — user-facing experiment guide
 - `docs/research/` — research-backed design decisions
 
