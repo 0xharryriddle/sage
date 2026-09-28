@@ -1,10 +1,9 @@
 ---------------------------- MODULE Sage ----------------------------
 (***************************************************************************)
-(* Bounded model check of SAGE's cross-boundary safety under a network     *)
-(* partition straddling the cutover, plus decision uniqueness and rollback *)
-(* safety. This is the artifact backing paper.tex App. `app:spec`          *)
-(* ("A bounded-model check over n in {4,7,10} and all partition splits of  *)
-(* the cutover window reproduces I and the rollback property") and the     *)
+(* Bounded model check of SAGE's target-side boundary agreement under a    *)
+(* network partition straddling cutover, plus decision uniqueness. This    *)
+(* artifact backs the bounded CutCert-side claims in paper.tex App.        *)
+(* `app:spec`; rollback is checked separately in SageRollback.tla.         *)
 (* Path A item 2 in docs/reviews/PUBLISHABILITY_ASSESSMENT.md.             *)
 (*                                                                         *)
 (* FAITHFULNESS (guards against an abstract spec that trivially passes):   *)
@@ -22,6 +21,24 @@
 (* the faithful gate (TRUE) and the blind control (FALSE). With QuorumGated *)
 (* = FALSE, TLC MUST report a Safety counterexample -- proving the check    *)
 (* has teeth, mirroring the empirical broken control (hardfork forks 5/5).  *)
+(*                                                                         *)
+(* ABSTRACTION BOUNDARY (authority fence / transfer / ACTIVATING state):    *)
+(* this model assumes the old legacy generation cannot commit at the fixed  *)
+(* boundary and abstracts only the cutover DECISION (attest -> (n-f)        *)
+(* CutCert -> commit the                                                   *)
+(* boundary block), which is where the cross-boundary fork can occur and    *)
+(* where quorum intersection does the safety work. It deliberately does NOT *)
+(* model installation/dissemination of the committee-wide boundary fence,  *)
+(* rollback/seal terminal decisions, or the paper's ACTIVATING phase (the   *)
+(* C1->C2 authority-transfer step                                           *)
+(* gated on the target's first activation QC, Alg. `alg:sage` and guard g3').*)
+(* That step bounds the handoff gap and keeps C1 authoritative until         *)
+(* activation. Within this abstraction, whether target authority transfers  *)
+(* immediately on CutCert or on a later activation QC, at most one side can *)
+(* form the (n-f) CutCert authorizing a target-side boundary decision.       *)
+(* The ACTIVATING transition and its abort-on-timeout branch are exercised   *)
+(* instead by the Rust controller phase machine (crates/sage-controller/     *)
+(* src/phase.rs) and its property tests.                                     *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -38,7 +55,7 @@ Validators == 1 .. N
 Quorum == N - F
 
 \* A binary partition. Two disjoint sides covering all validators are the
-\* split the cross-boundary safety argument addresses; TLC explores every
+\* split the target-side boundary-decision abstraction addresses; TLC explores every
 \* assignment of validators to sides (all splits) from Init.
 Sides == {1, 2}
 
@@ -102,8 +119,8 @@ Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 (* reachable state over all partition splits).                             *)
 (***************************************************************************)
 
-\* Cross-boundary safety (paper Theorem `th:safety`, invariant I): no two
-\* validators commit different boundary blocks.
+\* Target-side boundary agreement under the assumed legacy fence: no two
+\* validators commit different target boundary blocks.
 Safety ==
     \A v, w \in Validators :
         (committed[v] # 0 /\ committed[w] # 0) => committed[v] = committed[w]
