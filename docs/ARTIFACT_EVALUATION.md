@@ -74,9 +74,12 @@ make formal
 bash formal/check_readiness_lock.sh
 ```
 
-The legacy aggregate runner covers its historical model set; the readiness-lock
-runner is separate. Inspect expected HOLDs and named counterexamples rather than
-treating every nonzero control exit as a regression.
+The legacy aggregate runner covers its historical model set and intentionally
+expects broken controls to produce named counterexamples. **It also removes
+`formal/states/` on exit.** Run `make formal` only in a disposable checkout with
+no valuable local TLC state. In a populated checkout, use the isolated
+`-metadir` direct TLC commands documented in `formal/README.md`. The separate
+readiness-lock runner does not make the legacy runner cover the newer models.
 
 ## 5. Fresh simulator outputs
 

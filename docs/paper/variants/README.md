@@ -1,6 +1,8 @@
 # Paper Variants
 
-This directory preserves non-canonical paper sources and backups used during the paper consolidation/refactor.
+This directory preserves historical, non-canonical manuscript snapshots used
+during earlier consolidation and review rounds. Their prose and claims are dated
+artifacts; do not treat them as the current paper.
 
 ## Files
 
@@ -9,7 +11,16 @@ This directory preserves non-canonical paper sources and backups used during the
 
 ## Canonical Source
 
-The canonical build entrypoint remains `docs/paper.tex` for compatibility. A structured copy also exists at `docs/paper/paper.tex`, but it should not be edited independently until the project decides to make `docs/paper/paper.tex` canonical and convert `docs/paper.tex` into a wrapper.
+The current canonical manuscript is
+`docs/paper/SAGE_ThaiCong_IEEE/main.tex`, titled **“SAGE: A Certified
+Cross-Engine Boundary for Fixed-Committee Consensus Migration in Permissioned
+Blockchains.”** The directory suffix `_IEEE` is historical; the source uses
+Elsevier `elsarticle` for *Blockchain: Research and Applications*.
+
+`docs/paper.tex`, `docs/paper/paper.tex`, and every file in this variants
+directory are legacy snapshots retained for provenance. Do not edit them as a
+second live manuscript or copy their claims into current documentation without
+revalidation against the canonical source.
 
 ## Policy
 
