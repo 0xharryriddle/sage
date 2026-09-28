@@ -5,13 +5,21 @@ without halting block production. This repository is a Rust protocol artifact
 covering deterministic simulation, experiment generation, manifest validation,
 and an early local multi-validator runtime.
 
-The additional `formal/` design models on this branch are bounded abstractions,
-not implementation or deployment authority. See `formal/README.md` for the
-separate faithful and falsifying-control configurations. This PR retains the
-existing manuscript and results unchanged; the added figure-data generator
-can process fresh CSV inputs, but no new historical campaign data are included.
-Candidate Retry runtime implementation remains outside this PR pending its
-independent exact-byte authorization.
+## Manuscript scope
+
+The current canonical manuscript is titled **SAGE: A Certified Cross-Engine
+Boundary for Fixed-Committee Consensus Migration in Permissioned Blockchains**.
+Its source, `docs/paper/SAGE_ThaiCong_IEEE/main.tex`, is tracked on the separate
+source branch but is not present on `main`. The available `docs/paper.tex` is a
+legacy draft, not the canonical manuscript. Neither the current manuscript nor
+its review status can be inspected in a public checkout of this branch.
+
+The additional `formal/` design models are bounded abstractions, not
+implementation or deployment authority. See `formal/README.md` for faithful
+and falsifying-control configurations. This branch retains the legacy draft
+and existing results unchanged; generators accept fresh CSV inputs, but no
+new historical campaign data are included. Candidate Retry runtime changes
+remain on the source branch pending independent exact-byte authorization.
 
 ## Quick Start
 
@@ -64,7 +72,7 @@ sage/
   Cargo.toml                     # workspace root
   Makefile                       # build/test/experiment targets
   config/                        # default, rq1-rq4, safety TOML configs
-  docs/                          # paper draft, plans, experiment guide, research notes
+  docs/                          # legacy paper draft, experiment guide, research notes
   crates/
     sage-core/                   # deterministic protocol data model
     sage-manifest/               # migration manifest, certificates, signatures
@@ -183,7 +191,8 @@ Observed results:
 
 ## Documentation
 
-- `docs/paper.tex` — journal paper draft
+- `docs/README.md` — documentation index and manuscript availability boundary
+- `docs/paper.tex` — legacy draft; not the canonical manuscript
 - `docs/guides/experiment_guide.md` — user-facing experiment guide
 - `docs/research/` — research-backed design decisions
 
