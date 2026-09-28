@@ -1,211 +1,182 @@
 # SAGE — Shadow-Anchored Graceful Evolution
 
-SAGE migrates a live permissioned blockchain from one consensus engine to another
-without halting block production. This repository is a Rust protocol artifact
-covering deterministic simulation, experiment generation, manifest validation,
-and an early local multi-validator runtime.
+**SAGE** is the project and protocol-design name: **Shadow-Anchored Graceful
+Evolution**. It studies certified migration between deterministic-finality
+consensus engines in a permissioned blockchain with one fixed, identical
+validator committee and monolithic state.
 
-## Current manuscript
+The canonical paper is **“SAGE: A Certified Cross-Engine Boundary for
+Fixed-Committee Consensus Migration in Permissioned Blockchains,”** at
+[`docs/paper/SAGE_ThaiCong_IEEE/main.tex`](docs/paper/SAGE_ThaiCong_IEEE/main.tex).
+It uses Elsevier's `elsarticle` class for *Blockchain: Research and
+Applications*; `_IEEE` in the directory name is historical. The older
+[`docs/paper.tex`](docs/paper.tex) is a retained legacy draft.
 
-**SAGE: A Certified Cross-Engine Boundary for Fixed-Committee Consensus
-Migration in Permissioned Blockchains** is the current manuscript at
-`docs/paper/SAGE_ThaiCong_IEEE/main.tex`. It uses Elsevier `elsarticle` for
-*Blockchain: Research and Applications*; `_IEEE` in the path is historical.
-The earlier `docs/paper.tex` remains a separate legacy draft. The manuscript
-presents a conditional locked-readiness design, not a fully implemented
-networked handoff or a submission-ready finding. Its presentation build pins
-eight CSV inputs, with three conflicting legacy inputs retained unchanged and
-the paper-specific versions under `results/raw/paper/SAGE_ThaiCong_IEEE/`.
-`rebuild.py --check-data` checks pins; `--verify-rebuild` compares two builds
-and 22 products. Neither reruns historical campaigns or grants runtime authority.
+SAGE is a conditional protocol design and research artifact, not a
+production-qualified migration implementation. Source finalization continues
+during shadow preparation, followed by a deliberate **certification pause**
+before target activation. “Live migration” in the paper does not mean
+uninterrupted consensus.
 
-The additional `formal/` design models are bounded abstractions, not
-implementation or deployment authority. See `formal/README.md` for their
-faithful and falsifying-control configurations. Candidate Retry runtime
-implementation remains outside this branch pending independent exact-byte
-authorization.
+## Protocol design
 
-## Quick Start
+The paper's locked-readiness profile separates migration obligations that a
+simple engine or quorum swap would conflate:
 
-```bash
-cargo build --workspace
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-cargo run -p sage-experiments --bin verify -- --config config/default.toml
-cargo run -p sage-experiments --bin run_rq1 -- --config config/rq1.toml --seeds 0,1,2
-```
+1. **Single-finalizer shadow execution.** The source engine remains the only
+   finalizer while the target re-executes source-finalized blocks without
+   proposing or finalizing.
+2. **Durable readiness lock.** After a stability window, a correct validator
+   locks one eligible boundary and durably stops old-generation source
+   authorization above it before releasing its readiness share.
+3. **Certified boundary.** An `n-f` `CutCert`, under the admitted source policy
+   `q1 > 2f`, excludes further source finalization. Target authority is still
+   disabled at this point.
+4. **Manifest and retirement evidence.** An `n-f` `ManifestCert`, a durable
+   local source fence, and a policy-bound `FenceCert` gate target activation.
+   In the locked design, `FenceCert` records manifest-bound retirement; it is
+   not an independent source-exclusion necessity.
+5. **Two-tier finality.** Target blocks are provisional until a certified
+   seal. A certified abort before the deadline returns to the boundary anchor
+   under a fresh source generation; reaching the deadline alone does not seal.
+6. **Fail-closed progress.** Incompatible candidates or insufficient eligible
+   signers may leave migration pending. Automatic close-and-retry is outside
+   the current design.
 
-## What SAGE Does
-
-Permissioned blockchains need to swap consensus engines (for example, PoA to
-HotStuff) as trust models and performance requirements change. SAGE performs
-this migration without halting block production, using four mechanisms:
-
-1. **Single-finalizer dual-run**: the legacy engine remains the sole finalizer
-   while the target engine validates in shadow mode.
-2. **Shadow anchoring**: validators collect `kappa` consecutive matching shadow
-   verdicts before certifying readiness.
-3. **Quorum-certified cutover**: `n - f` validators certify readiness before
-   authority transfers to the target engine.
-4. **Bounded rollback**: if cutover fails, the system can roll back to the last
-   legacy-committed block within a deadline window.
-
-## Comparing Strategies
-
-The artifact compares six migration strategies:
-
-| Strategy | Protocol swap | Downtime | Fork risk under partition |
-|----------|---------------|----------|---------------------------|
-| SAGE (proposed) | yes | 0 | 0 observed (0/10 in multi-process testbed) |
-| SageBlind | yes | 0 | baseline-risk strategy |
-| Stop-the-world | yes | expected finality gap | 0 |
-| Hard fork (flag-day) | yes | 0 | forks 10/10 in multi-process testbed |
-| Reconfig-only | no | 0 | 0 |
-| Cox-style (live-switch SOTA) | yes | 0 (ties SAGE, p=1.0) | forks 10/10 in multi-process testbed |
-
-Cox-style models the closest live-switch SOTA class (Cox, Blockchain: Research and Applications
-2026) on our engine interface: a zero-downtime switch on a quorum-certified boundary checkpoint,
-without SAGE's n-f dual-run cutover gate. It ties SAGE on migration cost and separates only on
-adversarial safety, isolating the n-f gate. See `scripts/m6_sota_baseline_differential.sh`.
-
-## Workspace Structure
+For arbitrary-subset boundary certificates, correct-signer intersection and
+availability require
 
 ```text
-sage/
-  Cargo.toml                     # workspace root
-  Makefile                       # build/test/experiment targets
-  config/                        # default, rq1-rq4, safety TOML configs
-  docs/                          # legacy paper draft, experiment guide, research notes
-  crates/
-    sage-core/                   # deterministic protocol data model
-    sage-manifest/               # migration manifest, certificates, signatures
-    sage-consensus/              # PoA, HotStuff, quorum, pacemaker primitives
-    sage-controller/             # SAGE migration state machine and invariants
-    sage-sim/                    # deterministic event-driven simulator
-    sage-stats/                  # confidence intervals and hypothesis tests
-    sage-experiments/            # CLI experiment and artifact-generation binaries
-    sage-store/                  # storage traits and in-memory backend
-    sage-network/                # transport trait and in-memory transport
-    sage-node/                   # early local multi-validator runtime
-  results/                       # generated raw CSV, metadata, tables, figures
+(n + f) / 2 < q <= n - f
 ```
 
-## Experiments
+SAGE chooses `q = n-f`, the largest available threshold, not the only safe
+one. This applies established Byzantine-quorum intersection to migration
+authority; the paper does not claim new quorum arithmetic or that `2f+1` is
+unsafe in every BFT protocol.
 
-| Binary | Purpose | Typical output |
-|--------|---------|----------------|
-| `verify` | Artifact gate and invariant smoke checks | terminal PASS/FAIL summary |
-| `run_rq1` | Migration cost against baselines | `results/raw/rq1_migration_cost.csv` |
-| `run_rq2` | Partition safety / fork-rate trials | `results/raw/rq2_partition_safety.csv` |
-| `run_rq3` | Kappa / shadow anchoring ablation | `results/raw/rq3_kappa_ablation.csv` |
-| `run_rq4` | Rollback correctness / scaling inputs | `results/raw/rq4_rollback.csv` |
-| `run_safety` | Adversarial partition safety | `results/raw/safety_partition.csv` |
-| `run_termination` | Partition-duration termination | `results/raw/termination.csv` |
-| `run_sensitivity` | Network-delay sensitivity | `results/raw/sensitivity.csv` |
-| `run_manifest_tests` | Manifest negative tests and simulation checks | `results/raw/manifest_tests.csv` |
-| `generate_tables` | Raw CSV to LaTeX snippets | `results/tables/*.tex` |
-| `generate_figures` | Raw CSV to figure data | `results/figures/*` |
+## What this repository contains
 
-Run the standard artifact targets:
+| Surface | Included scope | What it does **not** establish |
+|---|---|---|
+| Rust workspace | Data model, manifest/consensus/controller crates, deterministic simulator, experiment tools, in-memory storage/network abstractions, and a partial local process runtime | Complete production handoff or deployment readiness |
+| Formal models | Bounded TLA+/TLC design abstractions with falsifying controls for boundary decisions, manifest agreement, fence ordering, rollback, readiness locking, and selected committee layouts | General theorem, model-to-code refinement, or runtime authority |
+| Simulator | Deterministic event-time controls, parameter sensitivity, and artifact generation | Client-visible downtime or full network-path performance |
+| Multi-process testbed | Constructed loopback TCP controls for a partial PoA-to-HotStuff path | Complete committee-wide manifest/fence/abort/seal execution, authenticated placement, or physical geo-WAN evidence |
+| Paper rebuild | Hash-checks retained inputs and regenerates presentation tables, figures, and PDF products | Historical experiment rerun, missing trial recovery, submission approval, or runtime authorization |
 
-```bash
-make all-lite   # cargo test + verify
-make all        # test, verify, all experiments, tables, figures
-```
+The implemented process path is a `CutCert`-gated subset with a crash-only
+source profile. Committee-wide manifest gossip, fence-certificate transport,
+terminal-certificate dissemination, certified abort and seal, and persistent
+Rule 1 enforcement through the complete handoff remain open system work.
 
-## Multi-process testbed (real OS processes over loopback TCP)
-
-Beyond the deterministic simulator, SAGE ships a real distributed testbed: N
-`validator_proc` OS processes, each bound to its own loopback socket, crossing the
-PoA→HotStuff cutover with no shared memory. The fork detector judges safety at the
-finalized `state_root` level (not engine-tagged block hashes, which differ at the
-cutover boundary because `engine_id` is bound into the hash). Set `SAGE_FORK_DEBUG=1`
-for a per-height state_root/engine-group dump.
+## Quick start
 
 ```bash
-make testbed         # 3/3 partition: blind hardfork forks 5/5, quorum-gated SAGE 0/5
-make msg-complexity  # n in {4..22} sweep -> results/raw/m4_message_complexity.csv (O(n^2) cost)
-make byzantine       # one equivocator within f -> SAGE 0/5 forks (correct BFT safety)
-```
-
-| Experiment | What it shows | Output |
-|------------|---------------|--------|
-| `m3_partition_experiment.sh` | n-f cutover-quorum gate causally prevents the fork | terminal differential |
-| `m4_message_complexity.sh` | empirical O(n²) broadcast cost (`per_round/n²` ~1.1–1.24) | `results/raw/m4_message_complexity.csv` |
-| `m5_byzantine_equivocation.sh` | active Byzantine equivocation does NOT fork (quorum intersection) | `results/raw/m5_byzantine_equivocation.csv` |
-
-The single-box liveness ceiling is ~n=22 (around 15/22 processes finish under the
-30 s wall-clock valve, with no fork). Multi-region n=50 is scoped future work; the
-loopback netem tier at n≈22 is the shipped bridge evidence.
-
-## Verification Checkpoint
-
-Last verified in this workspace on 2026-06-16:
-
-```bash
-cargo fmt --all --check
+cargo build --workspace --locked
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-cargo run -p sage-experiments --bin verify -- --config config/default.toml
-cargo test -p sage-manifest --features real-crypto
+cargo test --workspace --no-fail-fast
+cargo run -p sage-experiments --bin verify
 ```
 
-Observed results:
+`verify` loads the checked-in configurations itself; it has no `--config`
+argument. Its checks cover configuration loading, deterministic simulator
+smokes, selected invariants, schema constants, and headers of raw CSVs that
+exist in the checkout. A passing verifier is not validation of retained CSV
+rows, the full network protocol, or paper submission readiness.
 
-| Metric | Value |
-|--------|-------|
-| Rust source files | 85 |
-| Workspace crates | 10 |
-| Experiment binaries | 11 (sage-experiments) + 4 (sage-node) |
-| Config files | 6 |
-| Default workspace tests | 116 passing (+2 `#[ignore]` on-demand) |
-| Feature-gated real-crypto tests | 4 passing |
-| Verify checks | 16 passing |
-| Multi-process testbed scripts | m3 partition, m4 message-complexity, m5 Byzantine equivocation, m6 SOTA Cox-style baseline |
-| Git metadata | unavailable in this checkout (`.git` missing) |
+Experiment commands create **new observations**. For example:
 
-## Current Checkpoint
+```bash
+cargo run -p sage-experiments --bin run_rq1 -- \
+  --config config/rq1.toml --seeds 0,1,2
+```
 
-- Core protocol model, PoA, HotStuff, controller, simulator, experiment binaries,
-  statistics helpers, and invariant checks are implemented and lint-clean.
-- HotStuff includes timeout-certificate pacemaker primitives, but the simulator
-  still uses deterministic external view synchronization for repeatable runs.
-- `sage-store` and `sage-network` provide trait-based in-memory backends.
-  Manifest insertion in the memory backend is idempotent for identical bytes
-  and rejects a conflicting body for an occupied epoch.
-- `sage-node` can run a one-process local testnet, finalize PoA blocks, observe
-  SAGE cutover, and finalize one post-cutover HotStuff block in smoke tests.
-- The Ed25519 signature backend is available behind the `real-crypto` feature.
+This small run does not reproduce the retained paper campaign. See
+[`docs/EXPERIMENT_FAIRNESS.md`](docs/EXPERIMENT_FAIRNESS.md) before interpreting
+strategy contrasts or comparing simulator outputs.
 
-## Known Gaps
+## Paper rebuild
 
-- `sage-node` now records local vote safety keys, rejects a conflicting vote
-  after a cloned restart boundary, and restores committed height/state root from
-  persisted in-memory snapshots. A full local-runtime restore can continue
-  consensus to the target height; durable disk-backed recovery remains future work.
-- Experiment metadata now uses SHA-256 and records config/tool context, but
-  metadata write errors should still be propagated consistently by all binaries.
-- CSV schema constants exist, but row structs should fully converge on common
-  columns across every experiment binary.
-- `verify` is stricter, but should still add generated table/figure validation
-  and known-broken fixture checks.
-- Table/figure generators now fail on missing required inputs unless
-  `--allow-missing` is passed; they still need fuller table/figure coverage.
-- Docs and paper tables must be regenerated from current Rust outputs before any
-  artifact or paper submission.
+Three paper-specific inputs whose historical top-level paths contain different
+legacy bytes live under `results/raw/paper/SAGE_ThaiCong_IEEE/`. Existing legacy
+CSVs remain unchanged.
 
-## Documentation
+```bash
+python3 -B docs/paper/SAGE_ThaiCong_IEEE/rebuild.py --check-data
+python3 -B docs/paper/SAGE_ThaiCong_IEEE/rebuild.py \
+  --verify-rebuild --work-root /tmp/sage-paper-build
+```
 
-- `docs/README.md` — documentation index and manuscript availability boundary
-- `docs/paper/SAGE_ThaiCong_IEEE/main.tex` — current canonical manuscript
-- `docs/paper.tex` — retained legacy manuscript draft
-- `docs/ARTIFACT_EVALUATION.md` — scoped claim-to-evidence map
-- `docs/RESPONSE_TO_REVIEWS.md` — historical response and current limitations
-- `docs/EXPERIMENT_FAIRNESS.md` — comparison conditions and interpretation limits
-- `scripts/paper_prose_metrics.py` and `scripts/paper_section_sizes.py` — advisory manuscript diagnostics, not submission gates
-- `docs/guides/experiment_guide.md` — user-facing experiment guide
-- `docs/research/` — research-backed design decisions
+The first command checks eight SHA-256-pinned CSV inputs and two pinned notes.
+The second performs two isolated builds, runs the staged manuscript gates, and
+compares 22 presentation products byte-for-byte. Neither command reruns
+historical campaigns or changes protocol authority.
+
+## Evaluation boundaries
+
+- The retained RQ1 cost comparison is a partial-path simulator study with an
+  inadmissible source policy and unequal target quorums. Its finalization gaps
+  are simulator event time, not complete certification cost or client downtime.
+- The internal `CoxStyle` arm is not an implementation or benchmark of Cox's
+  checkpoint/recovery protocol. No external switching implementation has been
+  executed in the shared harness.
+- Process controls separate unsafe-threshold conflicts from gate authorization
+  on constructed schedules. They do not execute the complete source-retirement
+  adversary or prove `n-f` is the unique safe threshold.
+- Configured-endpoint records do not independently authenticate machine
+  identity, placement, impairment, or physical isolation.
+- Bounded model checks support only their finite abstractions. Broken controls
+  are expected to produce named counterexamples.
+
+See [`docs/ARTIFACT_EVALUATION.md`](docs/ARTIFACT_EVALUATION.md) for the
+claim-to-command map and [`docs/RESPONSE_TO_REVIEWS.md`](docs/RESPONSE_TO_REVIEWS.md)
+for the historical response plus current-scope warnings.
+
+## Workspace
+
+```text
+crates/
+  sage-core/         deterministic protocol data model
+  sage-manifest/     manifests, certificates, and signature modeling
+  sage-consensus/    consensus engines and quorum primitives
+  sage-controller/   migration state machine and invariants
+  sage-sim/          deterministic event-driven simulator
+  sage-stats/        statistical utilities
+  sage-experiments/  experiment and artifact-generation CLIs
+  sage-store/        storage traits and in-memory backend
+  sage-network/      transport abstractions
+  sage-node/         partial local multi-process runtime
+formal/              bounded TLA+/TLC design models
+config/              simulator and experiment configurations
+docs/                manuscript, evaluation guides, and research notes
+results/             retained inputs and generated/experimental artifacts
+scripts/             experiment, verification, and editorial tools
+```
+
+Important entry points:
+
+- [`docs/README.md`](docs/README.md) — documentation and manuscript index
+- [`docs/paper/SAGE_ThaiCong_IEEE/main.tex`](docs/paper/SAGE_ThaiCong_IEEE/main.tex) — canonical manuscript
+- [`docs/ARTIFACT_EVALUATION.md`](docs/ARTIFACT_EVALUATION.md) — evidence tiers and commands
+- [`docs/EXPERIMENT_FAIRNESS.md`](docs/EXPERIMENT_FAIRNESS.md) — comparison conditions and confounders
+- [`formal/README.md`](formal/README.md) — model inventory, direct TLC commands, and limits
+- [`Makefile`](Makefile) — build, test, simulator, and testbed targets
+
+## Known gaps
+
+- No complete networked manifest/fence/activation/abort/seal campaign.
+- No admitted, quorum-matched full-handoff RQ1 with client-completed throughput
+  and interruption measurements.
+- No common-harness execution of an artifact-backed contemporary switching
+  system or Fabric-style maintenance transition.
+- No implementation refinement proof from the bounded models to Rust.
+- No safe close-and-retry protocol for incompatible candidate locks.
+- No joint committee/engine migration, sharded state, probabilistic-finality
+  source, or automatic compensation for discarded provisional effects.
+- Candidate Retry implementation authority remains separately exact-byte
+  governed and is not granted by this repository's ordinary checks.
 
 ## License
 
