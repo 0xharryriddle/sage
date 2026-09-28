@@ -76,7 +76,7 @@ sage/
   Cargo.toml                     # workspace root
   Makefile                       # build/test/experiment targets
   config/                        # default, rq1-rq4, safety TOML configs
-  docs/                          # paper draft, plans, experiment guide, research notes
+  docs/                          # legacy paper draft, experiment guide, research notes
   crates/
     sage-core/                   # deterministic protocol data model
     sage-manifest/               # migration manifest, certificates, signatures
@@ -195,6 +195,7 @@ Observed results:
 
 ## Documentation
 
+- `docs/README.md` — documentation index and manuscript availability boundary
 - `docs/paper/SAGE_ThaiCong_IEEE/main.tex` — current canonical manuscript
 - `docs/paper.tex` — retained legacy manuscript draft
 - `docs/ARTIFACT_EVALUATION.md` — scoped claim-to-evidence map
