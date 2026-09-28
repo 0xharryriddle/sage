@@ -76,6 +76,12 @@ impl CertificateStore for MemoryBackend {
 
 impl ManifestStore for MemoryBackend {
     fn put_manifest(&mut self, manifest: MigrationManifest) -> StoreResult<()> {
+        if let Some(existing) = self.manifests.get(&manifest.epoch) {
+            if existing != &manifest {
+                return Err(StoreError::ConflictingManifest);
+            }
+            return Ok(());
+        }
         self.manifests.insert(manifest.epoch, manifest);
         Ok(())
     }
@@ -178,6 +184,53 @@ mod tests {
                 payload_hash: Hash32::new([0; 32]),
             },
         }
+    }
+
+    fn dummy_manifest(epoch: u64, tool_byte: u8) -> MigrationManifest {
+        let mut cut_cert = dummy_cert();
+        cut_cert.payload.epoch = Epoch::new(epoch);
+        cut_cert.payload.kind = sage_manifest::CertificateKind::Cutover;
+        cut_cert.payload.height = Height::new(10);
+        cut_cert.payload.root = StateRoot::new([2; 32]);
+        MigrationManifest {
+            chain_id: ChainId::new("test"),
+            epoch: Epoch::new(epoch),
+            config_id: ConfigId::new(1),
+            cutover_height: Height::new(10),
+            parent_hash: BlockHash::new([1; 32]),
+            boundary_root: StateRoot::new([2; 32]),
+            source_engine: EngineId::new(EngineKind::Poa, EngineGeneration::new(1)),
+            target_engine: EngineId::new(EngineKind::HotStuff, EngineGeneration::new(1)),
+            tool_hash: Hash32::new([tool_byte; 32]),
+            cut_cert,
+            manifest_signature: SignatureEnvelope::Simulated {
+                payload_hash: Hash32::new([tool_byte; 32]),
+            },
+        }
+    }
+
+    #[test]
+    fn identical_manifest_retry_succeeds_and_other_epochs_remain_independent() {
+        let mut store = MemoryBackend::new();
+        let first = dummy_manifest(7, 0x10);
+        let next_epoch = dummy_manifest(8, 0x20);
+        store.put_manifest(first.clone()).unwrap();
+        store.put_manifest(first.clone()).unwrap();
+        store.put_manifest(next_epoch.clone()).unwrap();
+
+        assert_eq!(store.get_manifest(Epoch::new(7)).unwrap(), &first);
+        assert_eq!(store.get_manifest(Epoch::new(8)).unwrap(), &next_epoch);
+    }
+
+    #[test]
+    fn conflicting_manifest_for_same_epoch_is_rejected_and_original_retained() {
+        let mut store = MemoryBackend::new();
+        let original = dummy_manifest(7, 0x10);
+        store.put_manifest(original.clone()).unwrap();
+
+        let error = store.put_manifest(dummy_manifest(7, 0x20)).unwrap_err();
+        assert!(matches!(error, StoreError::ConflictingManifest));
+        assert_eq!(store.get_manifest(Epoch::new(7)).unwrap(), &original);
     }
 
     #[test]

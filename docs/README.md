@@ -8,6 +8,7 @@ Run `python3 -B docs/paper/SAGE_ThaiCong_IEEE/rebuild.py --check-data` to valida
 
 - `ARTIFACT_EVALUATION.md` — claim-to-evidence tiers and their limits.
 - `RESPONSE_TO_REVIEWS.md` — response history and current unresolved scope.
+- `EXPERIMENT_FAIRNESS.md` — matched settings and confounders in the retained internal comparisons, not a full-path fairness certificate.
 - `guides/experiment_guide.md` — experiment workflow guide.
 - `research/research_index.md` — index of research notes.
 - `../formal/README.md` — bounded model checks, not implementation qualification.

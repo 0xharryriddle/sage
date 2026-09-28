@@ -13,6 +13,9 @@ pub enum StoreError {
     #[error("manifest not found for epoch {0}")]
     ManifestNotFound(u64),
 
+    #[error("conflicting manifest already exists for this epoch")]
+    ConflictingManifest,
+
     #[error("state not found at height {0}")]
     StateNotFound(Height),
 
