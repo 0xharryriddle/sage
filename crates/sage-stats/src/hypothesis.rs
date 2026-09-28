@@ -102,7 +102,7 @@ pub struct PairedResult {
 
 /// Wilcoxon signed-rank test over seed-matched pairs (two-sided).
 ///
-/// Returns `EmptyInput` when the inputs differ in length or hold no pairs.
+/// Returns `NonFinitePair` for non-finite observations or pair differences.
 /// When every difference is zero the test is undefined in the usual sense; we
 /// report `p = 1.0` with a zero effect size, which is the correct
 /// "indistinguishable" verdict for two arms that tied on every seed.
@@ -111,7 +111,17 @@ pub fn wilcoxon_signed_rank(a: &[f64], b: &[f64]) -> StatsResult<PairedResult> {
         return Err(crate::error::StatsError::EmptyInput);
     }
 
-    let diffs: Vec<f64> = a.iter().zip(b.iter()).map(|(x, y)| x - y).collect();
+    let mut diffs = Vec::with_capacity(a.len());
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(crate::error::StatsError::NonFinitePair);
+        }
+        let difference = x - y;
+        if !difference.is_finite() {
+            return Err(crate::error::StatsError::NonFinitePair);
+        }
+        diffs.push(difference);
+    }
     let n_pairs = diffs.len();
     let nonzero: Vec<f64> = diffs.iter().copied().filter(|d| *d != 0.0).collect();
     let n_zero_differences = n_pairs - nonzero.len();
@@ -131,7 +141,7 @@ pub fn wilcoxon_signed_rank(a: &[f64], b: &[f64]) -> StatsResult<PairedResult> {
 
     // Rank absolute differences, averaging ranks within tie groups.
     let mut absolute: Vec<(f64, f64)> = nonzero.iter().map(|d| (d.abs(), *d)).collect();
-    absolute.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(std::cmp::Ordering::Equal));
+    absolute.sort_by(|x, y| x.0.total_cmp(&y.0));
     let m = absolute.len();
     let mut ranks = vec![0.0f64; m];
     let mut tie_correction = 0.0f64;
@@ -203,21 +213,26 @@ fn exact_sign_flip_p_value(nonzero_diffs: &[f64]) -> Option<f64> {
     if m == 0 || m > MAX_EXACT_PAIRS {
         return None;
     }
-    let observed: f64 = nonzero_diffs.iter().sum::<f64>().abs();
+    // Normalize before accumulating: finite raw differences can overflow in
+    // intermediate sums even when the mathematical signed sum is finite.
+    let scale = nonzero_diffs.iter().map(|d| d.abs()).fold(0.0, f64::max);
+    let normalized: Vec<f64> = nonzero_diffs.iter().map(|d| d / scale).collect();
+    let observed: f64 = normalized.iter().sum::<f64>().abs();
     let total = 1usize << m;
     let mut at_least_as_extreme = 0usize;
     for mask in 0..total {
         let mut sum = 0.0f64;
-        for (bit, diff) in nonzero_diffs.iter().enumerate() {
+        for (bit, diff) in normalized.iter().enumerate() {
             if mask & (1 << bit) == 0 {
                 sum += *diff;
             } else {
                 sum -= *diff;
             }
         }
-        // Tolerance guards against float drift making an identical
-        // reassignment look strictly smaller than the observed statistic.
-        if sum.abs() >= observed - 1e-12 {
+        // A scale-relative rounding allowance avoids treating all tiny shifts
+        // as equally extreme while including symmetric sign assignments.
+        let tolerance = 8.0 * f64::EPSILON * m as f64;
+        if sum.abs() >= observed - tolerance {
             at_least_as_extreme += 1;
         }
     }
@@ -229,10 +244,15 @@ fn median(values: &[f64]) -> f64 {
         return 0.0;
     }
     let mut sorted = values.to_vec();
-    sorted.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(f64::total_cmp);
     let mid = sorted.len() / 2;
     if sorted.len().is_multiple_of(2) {
-        (sorted[mid - 1] + sorted[mid]) / 2.0
+        let (lower, upper) = (sorted[mid - 1], sorted[mid]);
+        if lower.is_sign_negative() == upper.is_sign_negative() {
+            lower + (upper - lower) / 2.0
+        } else {
+            (lower + upper) / 2.0
+        }
     } else {
         sorted[mid]
     }
@@ -348,5 +368,40 @@ mod tests {
         assert_eq!(result.median_difference, -3.0);
         assert!(result.wilcoxon_p_value.is_finite());
         assert!(result.wilcoxon_p_value <= 1.0);
+    }
+    #[test]
+    fn wilcoxon_rejects_nonfinite_observations_and_overflowing_differences() {
+        for (a, b) in [
+            (f64::NAN, 0.0),
+            (f64::INFINITY, 0.0),
+            (0.0, f64::NEG_INFINITY),
+            (f64::MAX, -f64::MAX),
+        ] {
+            assert!(matches!(
+                wilcoxon_signed_rank(&[a], &[b]),
+                Err(crate::error::StatsError::NonFinitePair)
+            ));
+        }
+    }
+
+    #[test]
+    fn wilcoxon_large_finite_medians_remain_finite() {
+        for value in [1e308, -1e308] {
+            let result = wilcoxon_signed_rank(&[value, value], &[0.0, 0.0]).unwrap();
+            assert_eq!(result.median_difference, value);
+            assert!(result.wilcoxon_p_value.is_finite());
+        }
+    }
+
+    #[test]
+    fn wilcoxon_exact_permutation_survives_large_cancelling_sums() {
+        let result = wilcoxon_signed_rank(&[1e308, 1e308, -1e308], &[0.0; 3]).unwrap();
+        assert_eq!(result.exact_permutation_p_value, Some(1.0));
+    }
+
+    #[test]
+    fn wilcoxon_exact_permutation_preserves_small_shift_significance() {
+        let result = wilcoxon_signed_rank(&[1e-20; 15], &[0.0; 15]).unwrap();
+        assert_eq!(result.exact_permutation_p_value, Some(2.0 / 32768.0));
     }
 }
