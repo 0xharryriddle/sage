@@ -9,7 +9,7 @@ pub mod hypothesis;
 pub use ci::{mean_ci_bootstrap, wilson_interval, Interval};
 pub use correction::{holm_bonferroni, AdjustedDecision};
 pub use error::{StatsError, StatsResult};
-pub use hypothesis::{mann_whitney_u, MannWhitneyResult};
+pub use hypothesis::{mann_whitney_u, wilcoxon_signed_rank, MannWhitneyResult, PairedResult};
 
 pub fn crate_ready() -> bool {
     true
