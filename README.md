@@ -5,21 +5,25 @@ without halting block production. This repository is a Rust protocol artifact
 covering deterministic simulation, experiment generation, manifest validation,
 and an early local multi-validator runtime.
 
-## Manuscript scope
+## Current manuscript
 
-The current canonical manuscript is titled **SAGE: A Certified Cross-Engine
-Boundary for Fixed-Committee Consensus Migration in Permissioned Blockchains**.
-Its source, `docs/paper/SAGE_ThaiCong_IEEE/main.tex`, is tracked on the separate
-source branch but is not present on `main`. The available `docs/paper.tex` is a
-legacy draft, not the canonical manuscript. Neither the current manuscript nor
-its review status can be inspected in a public checkout of this branch.
+**SAGE: A Certified Cross-Engine Boundary for Fixed-Committee Consensus
+Migration in Permissioned Blockchains** is the current manuscript at
+`docs/paper/SAGE_ThaiCong_IEEE/main.tex`. It uses Elsevier `elsarticle` for
+*Blockchain: Research and Applications*; `_IEEE` in the path is historical.
+The earlier `docs/paper.tex` remains a separate legacy draft. The manuscript
+presents a conditional locked-readiness design, not a fully implemented
+networked handoff or a submission-ready finding. Its presentation build pins
+eight CSV inputs, with three conflicting legacy inputs retained unchanged and
+the paper-specific versions under `results/raw/paper/SAGE_ThaiCong_IEEE/`.
+`rebuild.py --check-data` checks pins; `--verify-rebuild` compares two builds
+and 22 products. Neither reruns historical campaigns or grants runtime authority.
 
 The additional `formal/` design models are bounded abstractions, not
-implementation or deployment authority. See `formal/README.md` for faithful
-and falsifying-control configurations. This branch retains the legacy draft
-and existing results unchanged; generators accept fresh CSV inputs, but no
-new historical campaign data are included. Candidate Retry runtime changes
-remain on the source branch pending independent exact-byte authorization.
+implementation or deployment authority. See `formal/README.md` for their
+faithful and falsifying-control configurations. Candidate Retry runtime
+implementation remains outside this branch pending independent exact-byte
+authorization.
 
 ## Quick Start
 
@@ -192,7 +196,10 @@ Observed results:
 ## Documentation
 
 - `docs/README.md` — documentation index and manuscript availability boundary
-- `docs/paper.tex` — legacy draft; not the canonical manuscript
+- `docs/paper/SAGE_ThaiCong_IEEE/main.tex` — current canonical manuscript
+- `docs/paper.tex` — retained legacy manuscript draft
+- `docs/ARTIFACT_EVALUATION.md` — scoped claim-to-evidence map
+- `docs/RESPONSE_TO_REVIEWS.md` — historical response and current limitations
 - `docs/guides/experiment_guide.md` — user-facing experiment guide
 - `docs/research/` — research-backed design decisions
 

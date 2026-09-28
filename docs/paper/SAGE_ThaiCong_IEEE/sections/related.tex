@@ -1,0 +1,140 @@
+% ===================================================================== RELATED WORK
+\section{Related work}
+\label{sec:related}
+
+\paragraph{Quorums, consensus, and reconfiguration}
+Deterministic asynchronous consensus faces the FLP limit~\cite{flp}; practical BFT protocols
+typically rely on partial synchrony~\cite{dls,pbft}. Byzantine quorum systems formalize the
+intersection and availability conditions used here~\cite{byzantinequorums}. Flexible and
+multi-threshold BFT already permit different decision types to use different quorums
+\cite{flexiblebft,multithresholdbft}. Thus neither our boundary threshold nor our fence-only
+inequality is new quorum mathematics. The distinction is where those conditions apply in an
+engine handoff, and what durable actions their signers have taken.
+
+Potential engines include HotStuff~\cite{hotstuff}, HotStuff-1~\cite{hotstuff1},
+Tendermint~\cite{tendermint}, DAG-based protocols
+\cite{narwhal,bullshark,shoal,shoalpp,autobahn,mysticeti}, and the broadcast/consensus hybrid
+Sui Lutris~\cite{suilutris}. Sui Lutris proves reconfiguration of its persistent hybrid; it is
+not a protocol for retiring one authoritative engine and bootstrapping a different engine across
+fault models. Membership reconfiguration work addresses changing replica sets
+\cite{verticalpaxos,reconfig,bftsmart,mongoraft,dynanet,hydra}. Stoppable Paxos ends a
+configuration by a stop command before its successor begins~\cite{stoppablepaxos}; asynchronous
+Byzantine reconfiguration addresses decisions by a superseded configuration
+\cite{asyncreconfig}. These works motivate our source-generation retirement obligation, but
+\sage{} holds committee membership fixed and changes the engine instead. A HotStuff-1 target,
+for example, would need an adapter that distinguishes its speculative confirmation from the
+irreversible finality represented in our two-tier contract; no such adapter is evaluated here.
+
+\paragraph{Deployed transitions}
+The Ethereum Merge prepared a proof-of-stake chain in parallel and used terminal total difficulty
+to trigger the transition~\cite{ethereummerge,eip3675}. EIP-3675 allows more than one terminal
+proof-of-work block, so the trigger alone need not name a unique checkpoint. Gasper, GRANDPA,
+Tendermint, and Tenderbake are consensus or finality mechanisms rather than specifications for
+this fixed-committee engine handoff~\cite{gasper,grandpa,tendermint,tenderbake}.
+Hyperledger Fabric~v3 supplies a closer \emph{operational} comparison: its Raft-to-BFT procedure
+keeps the consenter set unchanged and configures the BFT service for $n=3f+1$
+\cite{fabricbftmigration}. The procedure enters maintenance mode, rejects normal transactions,
+stops and restarts ordering nodes, and cannot return to Raft after BFT begins committing. Its
+ordered configuration and maintenance interval delimit the transition without a
+\sage{}-style provisional suffix. The design difference is therefore not ``halt versus no halt'':
+\sage{} also pauses finalization for certification, while keeping source service during preparation
+and specifying a certificate-gated abort before seal. Neither procedure was measured against the
+other in a shared deployment.
+
+\paragraph{Runtime and adaptive switching}
+Run-time switching between total-order algorithms predates blockchains~\cite{runtimeorder}.
+Abstract composes BFT instances using idempotent requests and signed initialization
+histories~\cite{abstracteurosys,abstract}. Subsequent systems include a Zab-to-Instant-Commit
+ZooKeeper switch~\cite{zkswitch} and Byzantine switching algorithms in
+BFT-SMaRt~\cite{dynamicbft}. BFTBrain selects among six BFT protocols in one cluster and uses an
+Abstract-derived handoff wrapper~\cite{bftbrain}. Cox uses a committed configuration block,
+matching signed termination checkpoints, and lagging-node recovery to switch among BFT cores;
+its security argument permits different core quorum values~\cite{cox}. ATBFT switches between
+leader-based and leaderless BFT modes~\cite{atbft}. Other frameworks adapt protocol choice to
+conditions~\cite{spectrum,adapt,aware,dapbft,adachain,adaptbft,threatadapt,adacon}, whereas
+resilient designs harden a protocol family~\cite{rebft,prime,aardvark,rbft}. Bedrock provides
+a common BFT implementation substrate, not itself an engine-migration protocol~\cite{bedrock}.
+
+Quorum-family change alone cannot establish novelty: Cox addresses unequal BFT-core quorums,
+Abstract permits distinct instance clusters, and Fabric crosses from crash to Byzantine fault
+tolerance. For the fixed, identical committee studied here, \sage{} instead specifies the
+dependency between a durable readiness lock and source quiescence, policy-bound retirement
+evidence, complete-manifest identity, and a certified provisional suffix. The mechanisms in
+\cref{tab:proof-obligations,tab:switchcompare} are source-described, not a head-to-head performance
+result; none of the cited implementations was run in this study. BFTBrain's same-cluster
+optimization starts the next epoch from already executed state without waiting again for
+matching initialization histories; its Appendix~B explains how the Abstract wrapper preserves
+composition~\cite{bftbrain,abstracteurosys}.
+
+\begin{table*}[t]
+\centering
+\caption{Source-described handoff obligations. ``Not specified'' identifies the reviewed source's
+boundary, not a demonstrated vulnerability. No row is a measured comparison.}
+\label{tab:proof-obligations}
+\small
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.14}
+\begin{tabularx}{\textwidth}{@{}L{0.13\textwidth}YYYY@{}}
+\toprule
+\textbf{Obligation} & \textbf{Abstract / BFTBrain} & \textbf{Cox} & \textbf{Fabric v3} & \textbf{\sage{} design} \\
+\midrule
+Boundary uniqueness & Valid signed init history; BFTBrain commits an epoch-ending request & Committed config block and matching signed checkpoints & Ordered channel configuration; maintenance boundary & One durable readiness body per epoch; $n-f$ \CutCert \\
+Old-authority exclusion & Backup aborts later requests; composition relies on each instance's correctness & Reconfiguring core rejects blocks above config block; checkpoint precedes replacement & Normal transactions rejected; ordering nodes stopped and restarted & Durable Rule~\ref{rule:lock} and $q_1>2f$; separate policy-bound retirement evidence \\
+State bootstrap & Execute init history; same-cluster BFTBrain already holds the state & Termination status binds next-core config and consensus state; genesis initializes new core & In-place ledger and BFT configuration; quorum checked before service resumes & Certified parent and root; adapter supplies native metadata and safety predicate \\
+Rollback semantics & Request abort and retry, not reversion of committed history & Lagging-epoch recovery; no reversible committed suffix specified & Backup recovery before exit from maintenance; one-way after BFT commits & Provisional suffix; certified abort to fresh generation, or certified seal \\
+Committee & Abstract allows separate clusters; BFTBrain uses the same cluster & Compatible BFT cores; distinct core quorums permitted & Same consenters; $n=3f+1$ & One fixed identical committee; source policy explicitly admitted \\
+Durability & Instance correctness; crash-store protocol not supplied by the wrapper argument & Core/checkpoint state; atomic write/release/restart ordering not specified in protocol pseudocode & Filesystem backup, retained ledgers, restart procedure & Persist-before-release and reload-before-use required; full runtime conformance unestablished \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\paragraph{Comparator reproducibility and shared dimensions}
+Cox publishes both the normal switch and lagging-node recovery: a committed configuration block
+puts the old core into a reconfiguring state; matching signed checkpoints certify its termination
+status; the new core initializes from that state; and chained epoch-change proofs bring lagging
+nodes forward~\cite[Sections~4.2--4.3 and 5.2]{cox}. Its argument uses the larger of the old
+and new core quorum values. A missing published checkpoint rule is therefore \emph{not} the reason
+for using an internal control. Rather, this study has not established a version-pinned executable
+Cox reproduction, compatible codec and state-transfer path, or exact durable
+write/release/restart ordering. The RQ1 ``Cox-style'' arm implements none of Cox's checkpoint or
+recovery path: it is an internal switch-class cost control, not Cox, and cannot support an
+empirical comparison with Cox.
+
+BFTBrain's documented predefined-order mode can isolate wrapper switching from learning in a
+shared BFT-to-BFT domain, but source inspection is not a successful execution or a matched
+benchmark. A common-harness study would fix hardware, network, request and batch sizes, load,
+committee, fault budget, and client-completion semantics before comparing throughput, latency,
+and boundary interruption. Fabric's maintenance interval is a separate shared dimension;
+\sage's provisional-suffix/abort semantics require a distinct report, not a fabricated
+competitor score. Neither a common-harness execution nor a technical impossibility of one is
+established here.
+
+\begin{table*}[t]
+\centering
+\caption{Mechanism comparison of runtime switching and engine transition, ordered by year of the
+cited source. No prior implementation was executed in this study.}
+\label{tab:switchcompare}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.12}
+\rowcolors{2}{rowtint}{white}
+\begin{tabularx}{\textwidth}{@{}L{0.14\textwidth}c L{0.20\textwidth} Y L{0.21\textwidth}@{}}
+\toprule
+\textbf{System} & \textbf{Year} & \textbf{Setting / switch} & \textbf{Handoff and recovery} & \textbf{Evidence in source} \\
+\midrule
+Total-order switch~\cite{runtimeorder} & 2006 & Total-order broadcast algorithms & Run-time adaptation; Byzantine faults out of scope & Feasibility demonstration \\
+Abstract / Backup~\cite{abstracteurosys,abstract} & 2010 & BFT instance composition & Idempotent requests; signed initialization histories & Composition theorem; evaluation \\
+ZooKeeper switch~\cite{zkswitch} & 2017 & Zab $\to$ Instant Commit, crash faults & Adaptation logic; transfer protocol not detailed & Proof-of-concept \\
+BFT-SMaRt switch~\cite{dynamicbft} & 2018 & Among Byzantine protocols & Several switching algorithms in one framework & Comparative implementation \\
+SeeMoRe~\cite{seemore} & 2020 & One hybrid crash/Byzantine protocol & Mode change inside one protocol; no engine replacement & Design and evaluation \\
+Bedrock~\cite{bedrock} & 2024 & Twelve BFT protocols, one platform & Not a switching protocol; common substrate & Uniform re-implementation \\
+BFTBrain~\cite{bftbrain} & 2025 & Six protocols, one BFT cluster & Signed init history; post-boundary requests aborted & Safety/liveness argument; public artifact \\
+ATBFT~\cite{atbft} & 2025 & Leader-based $\leftrightarrow$ leaderless BFT & Network-driven selection; uninterrupted processing claimed & Implementation and evaluation \\
+Cox~\cite{cox} & 2026 & Online switching among BFT algorithms & Recovery sub-protocol for lagging nodes & Partial-synchrony safety/liveness claim \\
+Fabric~v3~\cite{fabricbftmigration} & 2026 & Raft (crash fault tolerant) $\to$ SmartBFT, same consenters, $n=3f+1$ & Maintenance-mode halt; irreversible once BFT commits & Shipped operational procedure \\
+\midrule
+\rowcolor{sageblue!8}
+\textbf{\sage{} (this work)} & 2026 & Fixed committee; PoA $\to$ HotStuff across fault models & Certified boundary, manifest, fence, abort, seal; provisional suffix; deadline-bounded rollback & Exclusion theorems; bounded models with falsifying controls; process controls \\
+\bottomrule
+\end{tabularx}
+\end{table*}

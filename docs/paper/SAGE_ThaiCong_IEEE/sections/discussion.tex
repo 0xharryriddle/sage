@@ -1,0 +1,116 @@
+% ===================================================================== DISCUSSION
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Engine scope}
+The proof applies to an engine pair only when both satisfy the interface and adapter
+obligations of \cref{def:engine,tab:adapter}: deterministic finality and state
+roots, side-effect-free shadow validation, root-seeded target initialization,
+and durable source retirement. The PoA$\to$HotStuff path is the evaluated
+partial-path instantiation. A crash-tolerant Raft~\cite{raft} source adapter
+with majority replication and internal fence rejection crosses a finalized
+boundary in a component test; this is not a second distributed migration
+campaign. Its source quorum changes the admission condition: at $n=3f+1$,
+$q_1=\lfloor n/2\rfloor+1$ satisfies $q_1>2f$ only when $n\ge4f$.
+Thus a majority Raft source at $(7,2)$ is not admitted without a stronger
+source policy. The target-safety premise of \cref{th:safety} is independent
+of HotStuff internals, but conforming Bullshark~\cite{bullshark},
+Mysticeti~\cite{mysticeti}, or HotStuff-1~\cite{hotstuff1} adapters and their
+execution evidence have not been supplied.
+
+\paragraph{Retirement timing}
+Under durable Rule~\ref{rule:lock}, a valid $n-f$ \CutCert{} and admitted
+$q_1>2f$ already exclude a residual source quorum. The subsequent \FenceCert{}
+records retirement bound to the manifest and admitted policy; it is not a
+second independent necessity for source quiescence in that locked design.
+The result in \cref{prop:final-parent-retirement} offers a conditional alternative
+to that retirement timing: universal final-parent mediation and atomic stop-on-Boundary
+adoption could retire the source. It does not replace Rule~\ref{rule:lock}. The proposition
+does not apply to speculative or pipelined source engines that may authorize a
+child before its parent finalizes. Its source serialization cost and progress
+are not measured by the existing campaigns; neither later target activation
+nor any current campaign interpretation follows from this alternative.
+
+\paragraph{Composition with autonomous switching policies}
+A learned or threat-adaptive policy~\cite{adachain,threatadapt,adacon}
+could \emph{propose} a migration schedule, but governance would still have to
+admit the source policy, ordered heights, fixed committee, and every premise
+of the boundary proof. The handoff guarantee is conditional on the admitted
+schedule; it does not validate the policy that selected it. Within one
+governance epoch, the \CutCert{} and terminal locks constrain authority.
+No cooldown limits how often governance can open another epoch, so migration
+rate-limiting remains a deployment responsibility.
+
+\paragraph{Client semantics}
+A client that acts on a provisional block may later see its suffix discarded.
+GRANDPA's optimistic-versus-final distinction and the confirmation-depth
+convention of deployed chains offer analogous choices, but neither supplies
+receipt-revocation semantics~\cite{grandpa}. The signed tier says whether a receipt is revocable,
+not what to undo if it is revoked; receipt reconciliation and client compensation remain outside
+the live path. Irreversible cross-chain effects must wait for a
+\emph{verified} \SealCert{} covering that receipt; observing $h\ge\hr$ alone
+does not make provisional effects final.
+
+\paragraph{Evidence required for a system claim}
+The primary missing experiment is a networked forward handoff: distribute
+\CutCert{} and \ManCert{} shares, durably adopt the manifest and install local
+fences, form and distribute \FenceCert, activate the target, and complete
+\emph{both} certified abort and seal branches. Committee-wide fence deployment is not
+implemented in the evaluated network path; manifest gossip and terminal-certificate dissemination
+are absent from that path. Component predicates and the event-driven controller specification
+are not an execution of this transport (\cref{tab:status}). Crash/restart and partial-delivery
+injection must bracket
+each durable write and certificate transition, including a first post-restart
+source action. A timeout or a gate that safely refuses transfer is not a
+successful migration. The existing restart campaigns show catch-up in particular
+crash-only schedules, not persistent enforcement of Rule~\ref{rule:lock}
+throughout the handoff. Bounded TLC checks cover selected sizes, and equality
+of finite model/code outcome sets is not a prefix-preserving trace refinement;
+the faithful $n=7$ partial-delivery run has no completed verdict.
+
+The inadmissible, quorum-confounded RQ1 cost data in \cref{sec:rq1} cannot
+become full-path latency evidence by normalization or tighter confidence
+intervals. A rerun must hold the relevant quorum policies fixed across
+comparable arms, use an admitted source, collect all certificates, and record
+per-trial service interruption and client-completed throughput. To establish
+comparative systems performance, a pinned artifact-backed switch (for example,
+BFTBrain~\cite{bftbrain} or a Bedrock-based construction~\cite{bedrock})
+and a Fabric-style maintenance halt must be executed on shared hardware,
+network, workload, and client-completion definitions. Only common dimensions
+can be compared: the cited comparators were not executed, an internal Cox-style
+arm is not Cox, and no competitive external-client benchmark is available.
+
+The serialized simulator cannot realize a concurrent two-leader fork because
+it uses one proposer per height. Loopback partition controls are deliberately
+constructed, and the three-trial single-host impairment grid cannot estimate
+operational risk. Retained same-region recovery hosts add narrow catch-up evidence,
+not physical geo-WAN behaviour: physical geo-WAN remains outside this evaluation.
+Configured-endpoint throughput labels do not independently authenticate placement.
+Larger campaigns need per-trial authority traces and campaign-specific host,
+impairment, toolchain, and timing records. The current rollback fixtures
+check context admission, not execution-level replay and root equivalence
+under real application/oracle dependencies. Beyond the empirical gaps, the
+proof assumes one fixed identical committee and monolithic state; joint
+membership change, sharding, safe close-and-retry of stale candidates, and
+client compensation for discarded provisional effects remain outside it.
+
+\paragraph{Cost and feasibility}
+The retained synthetic evaluation needs no external dataset. The canonical
+single-host Ed25519 aggregate has a median of about $3.9$\,ms for $n=200$
+(134 shares; \cref{tab:certtiming}); individual timing samples are not retained.
+Neither panel measures distributed quorum latency: the share-list CPU result omits
+transport, while the simulator cutover-evidence panel omits committee-wide dissemination.
+
+Canonical-record accounting gives about $119$--$158$\,KiB
+of replay context per 1000 provisional blocks, excluding application replay
+and external reconciliation. Historical whole-command intervals are available
+for three input families, but missing campaign hardware and per-trial timing
+prevent a defensible wall-clock or monetary estimate for the entire evaluation.
+
+The successful design intentionally pauses source voting for certification
+before target activation. Its conditional bound in \eqref{eq:tbdy} includes
+readiness, certificate collection/delivery and failover, durable writes,
+initialization, and the first target commit; it does not guarantee a bound
+when these premises fail. The retained $10$--$16$\,ms partial-path gaps omit
+these stages. Neither the complete pause nor externally observed service
+interruption has yet been measured.

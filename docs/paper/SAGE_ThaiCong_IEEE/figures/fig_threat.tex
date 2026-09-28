@@ -1,0 +1,84 @@
+% DRAW-SPEC
+% message: Each attack surface on the migration timeline is gated by a named certificate or assumption.
+% reading-order: left-to-right along heights; threats (top) act on the timeline, mechanisms (bottom) gate them.
+% nodes: T1..T5 threats; phase band v1 | dual | v2 | sealed; M1..M6 mechanisms.
+% edges:
+%   T1 -> v1/dual band      : key custody of attestation keys
+%   T2 -> dual band         : Byzantine false readiness
+%   T3 -> boundary h_star   : partition at cutover
+%   T4 -> v2 band           : manifest supply chain
+%   T5 -> v2 band           : griefing via progress timeout
+%   M_i -> band (upward)    : mechanism that gates T_i ; M6 gates promotion at h_r
+% boundaries: v1 [.,h_d) | dual [h_d,h_star) | v2 [h_star,h_r) | sealed [h_r,.)
+% target: 183 mm x 66 mm; final text >= 7 pt.
+\documentclass[tikz,border=0pt]{standalone}
+\usepackage{draw-paper}
+\def\FigureWidthMM{183}
+\def\FigureHeightMM{66}
+\newcommand{\Tg}[1]{{\sffamily\bfseries #1}}
+\begin{document}
+\begin{tikzpicture}[draw canvas,
+  threat/.style={draw card,draw=drawRose!70,fill=drawRose!6,minimum width=27mm,
+    minimum height=11mm,text width=24mm,inner xsep=1.4mm},
+  mech/.style={draw card,draw=drawBlue!60,fill=drawBlue!5,minimum width=27mm,
+    minimum height=11mm,text width=24mm,inner xsep=1.4mm},
+  tag/.style={font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont},
+  hit/.style={-{Latex[length=1.9mm,width=1.35mm]},draw=drawRose,line width=0.8pt},
+  gate/.style={-{Latex[length=1.9mm,width=1.35mm]},draw=drawBlue,line width=0.8pt},
+  blk/.style={draw=drawInk!70,fill=white,line width=0.4pt,minimum size=2.1mm,inner sep=0pt},
+  sblk/.style={draw=drawAmber,fill=drawAmber!15,densely dashed,line width=0.45pt,minimum size=2.1mm,inner sep=0pt}]
+  \path[use as bounding box] (0,0) rectangle (\FigureWidthMM,\FigureHeightMM);
+
+  % ---------- phase band (background) ----------
+  \begin{scope}[on background layer]
+    \path[rounded corners=2mm,fill=drawLight] (1.5,1.5) rectangle (181.5,64.5);
+    \path[fill=drawTeal!12]   (5,25) rectangle (34,37);
+    \path[fill=drawAmber!14]  (34,25) rectangle (79,37);
+    \path[fill=drawPlum!11]   (79,25) rectangle (150,37);
+    \path[fill=drawPlum!26]   (150,25) rectangle (178,37);
+    \draw[drawInk!55,line width=0.45pt] (5,25) rectangle (178,37);
+  \end{scope}
+  \node[anchor=north west,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawTeal!55!black] at (5.6,36.4) {v1};
+  \node[anchor=north west,font=\sffamily\fontsize{6.6}{7.2}\selectfont,text=drawTeal!55!black] at (10.2,36.4) {$\mathcal C_1^{g_1}$ finalizes};
+  \node[anchor=north west,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawAmber!60!black] at (34.6,36.4) {dual-run};
+  \node[anchor=north west,font=\sffamily\fontsize{6.6}{7.2}\selectfont,text=drawAmber!60!black] at (47.0,36.4) {$\mathcal C_1$ finalizes, $\mathcal C_2$ shadows};
+  \node[anchor=north west,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawPlum!80!black] at (79.6,36.4) {v2};
+  \node[anchor=north west,font=\sffamily\fontsize{6.6}{7.2}\selectfont,text=drawPlum!80!black] at (84.6,36.4) {$\mathcal C_2$ finalizes; suffix \emph{provisional}, rollback admissible};
+  \node[anchor=north west,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawPlum!80!black] at (150.6,36.4) {sealed};
+  \node[anchor=north west,font=\sffamily\fontsize{6.6}{7.2}\selectfont,text=drawPlum!80!black] at (160.6,36.4) {absolute};
+
+  % ledger strip
+  \foreach \x in {8,12.5,17,21.5,26,30.5} \node[blk] at (\x,28.6) {};
+  \foreach \x in {38,42.5,47,51.5,56,60.5,65,69.5,74} \node[sblk] at (\x,28.6) {};
+  \foreach \x in {83,87.5,92,96.5,101,105.5,110,114.5,119,123.5,128,132.5,137,141.5,146} \node[blk,fill=drawPlum!10] at (\x,28.6) {};
+  \foreach \x in {154,158.5,163,167.5,172,176} \node[blk,fill=drawPlum!30] at (\x,28.6) {};
+
+  % boundary ticks and labels
+  \foreach \x/\lab in {34/{h_{\mathrm d}},79/{h_\star},150/{h_{\mathrm r}}} {
+    \draw[drawInk,line width=0.9pt] (\x,24) -- (\x,38);
+    \node[anchor=east,fill=drawLight,inner sep=0.5pt,font=\fontsize{7.4}{8}\selectfont] at (\x-0.7,22.2) {$\lab$};
+  }
+
+  % ---------- threats (top row) ----------
+  \node[threat] (t1) at (19,53.5) {\textcolor{drawRose!80!black}{\Tg{T1}}\;key custody of\\attestation keys};
+  \node[threat] (t2) at (49,53.5) {\textcolor{drawRose!80!black}{\Tg{T2}}\;Byzantine\\false readiness};
+  \node[threat] (t3) at (79,53.5) {\textcolor{drawRose!80!black}{\Tg{T3}}\;partition at\\cutover};
+  \node[threat] (t4) at (108,53.5) {\textcolor{drawRose!80!black}{\Tg{T4}}\;manifest /\\tooling supply chain};
+  \node[threat] (t5) at (137,53.5) {\textcolor{drawRose!80!black}{\Tg{T5}}\;griefing via\\progress timeout $\tau$};
+  \node[draw card,draw=drawSlate!50,fill=white,minimum width=27mm,minimum height=11mm,text width=24mm,
+    font=\sffamily\fontsize{6.6}{7.3}\selectfont,text=drawSlate] (tn) at (166,53.5) {deadline alone does\\\emph{not} seal the prefix};
+  \foreach \t/\x in {t1/19,t2/49,t3/82.5,t4/108,t5/137} \draw[hit] (\t.south -| \x,0) -- (\x,37.3);
+  \draw[draw support] (tn.south) -- (166,37.3);
+
+  % ---------- mechanisms (bottom row) ----------
+  \node[mech] (m1) at (19,10.5) {\textcolor{drawBlue!80!black}{\Tg{M1}}\;EUF-CMA keys,\\at most $f$ corrupted};
+  \node[mech] (m2) at (49,10.5) {\textcolor{drawBlue!80!black}{\Tg{M2}}\;$n{-}f$ CutCert\\($\ge f{+}1$ correct)};
+  \node[mech] (m3) at (79,10.5) {\textcolor{drawBlue!80!black}{\Tg{M3}}\;durable Rule 1\\$+$ CutCert, $q_1>2f$};
+  \node[mech] (m4) at (108,10.5) {\textcolor{drawBlue!80!black}{\Tg{M4}}\;$n{-}f$ Manifest-\\Certificate + allowlist};
+  \node[mech] (m5) at (137,10.5) {\textcolor{drawBlue!80!black}{\Tg{M5}}\;$n{-}f$ AbortCert,\\fresh $g_1'>g_1$};
+  \node[mech,draw=drawPlum!70,fill=drawPlum!8] (m6) at (166,10.5) {\textcolor{drawPlum!80!black}{\Tg{M6}}\;$n{-}f$ SealCert\\$\Rightarrow$ absolute};
+  \foreach \m/\x in {m1/19,m2/49,m4/108,m5/137} \draw[gate] (\m.north) -- (\x,24.7);
+  \draw[gate] (m3.north -| 82.5,0) -- (82.5,24.7);
+  \draw[gate,draw=drawPlum] (m6.north) -- (166,24.7);
+\end{tikzpicture}
+\end{document}

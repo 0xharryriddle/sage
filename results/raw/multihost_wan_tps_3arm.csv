@@ -1,0 +1,4 @@
+arm,rtt_ms_approx,n,trials,mean_committed_tps,trial1_tps,trial2_tps,trial3_tps,migrated_all,observed_fork
+sage,104,6,3,230.4,230.6,230.5,230.1,true,false
+hardfork,104,6,3,230.2,229.9,230.1,230.5,true,false
+cox_faithful,104,6,3,222.7,222.4,222.9,222.9,true,false

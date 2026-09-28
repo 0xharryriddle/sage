@@ -1,0 +1,84 @@
+% DRAW-SPEC
+% message: At a correct validator, manifest adoption and durable source fencing strictly precede target
+%          authority; every certificate is a quorum of committee shares on one immutable tuple.
+% reading-order: time top-to-bottom; actors left-to-right.
+% actors: client, c1 (PoA, authoritative), c2 (HotStuff, shadow), ctrl (SAGE controller at validator i), com (committee V_M).
+% edges (in time order):
+%   client -> c1   : tx
+%   c1 -> c2       : finalized B_h                         [dashed, repeated for h in [h_d,h_b]]
+%   c2 -> ctrl     : sigma_h, r~_h                         [dashed]
+%   ctrl (self)    : streak >= kappa; persist beta AND source prohibition before share
+%   ctrl -> com    : att_i = Sign_i<READY,beta>
+%   com -> ctrl    : n-f matching att => CutCert pi_B
+%   ctrl -> com    : manifest share on H(M_B)
+%   com -> ctrl    : pi_M (n-f) ; adopt durably
+%   ctrl (self)    : durable fence for h >= h_star
+%   ctrl -> com    : fence share (after durable write)
+%   com -> ctrl    : FenceCert (q_F matching)
+%   ctrl -> c2     : Init(r_{h*-1}, h*); A <- C2
+%   c1 marked fenced at h >= h_star
+% target: 183 mm x 104 mm; final text >= 7 pt.
+\documentclass[tikz,border=0pt]{standalone}
+\usepackage{draw-paper}
+\usetikzlibrary{shapes.misc}
+\def\FigureWidthMM{183}
+\def\FigureHeightMM{104}
+\begin{document}
+\begin{tikzpicture}[draw canvas,
+  actor/.style={draw header,minimum width=25mm,minimum height=9mm,text width=22mm,
+    font=\sffamily\bfseries\fontsize{7.0}{7.8}\selectfont},
+  life/.style={draw=drawSlate!60,line width=0.5pt,dash pattern=on 1.2pt off 1.2pt},
+  msg/.style={-{Latex[length=1.9mm,width=1.35mm]},draw=drawInk,line width=0.8pt},
+  smsg/.style={-{Latex[length=1.9mm,width=1.35mm]},draw=drawAmber!90!black,line width=0.8pt,densely dashed},
+  cmsg/.style={-{Latex[length=1.9mm,width=1.35mm]},draw=drawPlum,line width=0.8pt},
+  ml/.style={draw annotation,fill=white,font=\sffamily\fontsize{6.7}{7.4}\selectfont},
+  act/.style={draw card,draw=drawPlum!60,fill=drawPlum!7,minimum width=62mm,text width=60mm,
+    minimum height=6mm,inner ysep=0.9mm,font=\sffamily\fontsize{6.6}{7.3}\selectfont}]
+  \path[use as bounding box] (0,0) rectangle (\FigureWidthMM,\FigureHeightMM);
+  \begin{scope}[on background layer]
+    \path[rounded corners=2mm,fill=drawLight] (1.5,1.5) rectangle (181.5,102.5);
+    % phase bands
+    \path[fill=drawAmber!9] (19,68) rectangle (180,90);
+    \path[fill=drawPlum!6]  (19,16) rectangle (180,68);
+    \path[fill=drawTeal!8]  (19,3)  rectangle (180,16);
+  \end{scope}
+  % phase labels (left gutter, rotated)
+  \node[rotate=90,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawAmber!60!black] at (10,79) {dual-run};
+  \node[rotate=90,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawPlum!80!black] at (10,42) {certified handoff};
+  \node[rotate=90,font=\sffamily\bfseries\fontsize{6.8}{7.4}\selectfont,text=drawTeal!55!black] at (10,9.5) {v2};
+  \draw[drawSlate!60,line width=0.5pt] (14,68.5) -- (14,89.5) (14,16.5) -- (14,67.5) (14,3.5) -- (14,15.5);
+
+  % actors
+  \foreach \x/\n/\t/\c in {34/cl/{Client}/drawSlate,64/c1/{$\mathcal C_1$ PoA\\authoritative}/drawTeal!80!black,
+      94/c2/{$\mathcal C_2$ HotStuff\\shadow}/drawAmber!85!black,129/ct/{SAGE controller\\at validator $i$}/drawPlum,
+      164/cm/{Committee $\mathcal V_{\mathrm M}$\\($n$ validators)}/drawInk} {
+    \node[actor,fill=\c] (\n) at (\x,96.5) {\t};
+    \begin{scope}[on background layer]\draw[life] (\x,91.8) -- (\x,3.5);\end{scope}
+  }
+
+  % dual-run messages
+  \draw[msg] (34,86) -- node[ml,above=0.2mm] {tx} (64,86);
+  \draw[smsg] (64,81) -- node[ml,above=0.2mm] {finalized $B_h$} (94,81);
+  \draw[smsg] (94,76) -- node[ml,above=0.2mm] {$\sigma_h,\ \tilde r_h$} (129,76);
+  \node[act,anchor=east] at (132,71.2) {ready $\Rightarrow$ persist $\beta$ and source prohibition above $h_{\mathrm b}$};
+
+  % certified handoff
+  \draw[cmsg] (129,64.5) -- node[ml,above=0.2mm] {$\mathsf{att}_i=\mathrm{Sign}_i\langle\mathrm{READY},\beta\rangle$} (164,64.5);
+  \draw[cmsg] (164,58.5) -- node[ml,above=0.2mm] {$n{-}f$ matching $\Rightarrow\pi_{\mathrm B}$} (129,58.5);
+  \node[act,anchor=east] at (132,53.6) {CutCert $+$ durable lock $+$ $q_1>2f$: source quiescent};
+  \draw[cmsg] (129,47.5) -- node[ml,above=0.2mm] {share on $\mathsf H(\mathcal M_{\mathrm B})$} (164,47.5);
+  \draw[cmsg] (164,41.5) -- node[ml,above=0.2mm] {$\pi_{\mathrm M}$ ($n{-}f$)} (129,41.5);
+  \node[act,anchor=east] at (132,36.6) {adopt $\mathcal M_{\mathrm B}$ durably (one body per epoch)};
+  \node[act,anchor=east,minimum width=50mm,text width=48mm,draw=drawRose!70,fill=drawRose!6] (fz) at (132,30.4) {\textbf{durable fence}: reject $\mathcal C_1$ at $h\ge h_\star$};
+  \draw[cmsg] (129,24.5) -- node[ml,above=0.2mm] {fence share (after write)} (164,24.5);
+  \draw[cmsg] (164,19) -- node[ml,above=0.2mm] {FenceCert: policy-bound retirement evidence} (129,19);
+  \draw[draw reject,-{Latex[length=1.9mm,width=1.35mm]}] (fz.west) -- (64,30.4);
+  \node[draw=drawRose,line width=1pt,cross out,minimum size=2.6mm,inner sep=0pt] at (64,30.4) {};
+  \node[ml,fill=drawPlum!6,anchor=north,text=drawRose!80!black] at (64,27.6) {$\mathcal C_1^{g_1}$ fenced for $h\ge h_\star$};
+
+  % v2
+  \draw[msg,draw=drawPlum] (129,11.5) -- node[ml,above=0.2mm] {$\mathcal C_2.\mathsf{Init}(r_{h_\star-1},h_\star)$;\ $\mathcal A\leftarrow\mathcal C_2$} (94,11.5);
+  \node[draw card,draw=drawTeal!70,fill=white,minimum width=22mm,minimum height=5mm,inner ysep=0.6mm,
+    font=\sffamily\fontsize{6.6}{7.3}\selectfont] at (94,6.3) {first target-native QC};
+\end{tikzpicture}
+\end{document}

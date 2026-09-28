@@ -1,0 +1,5 @@
+experiment,n,f,signers,sign_total_us,verify_all_p50_us,verify_all_p95_us,cert_bytes,gather_model_us,measurement_source
+cert_timing,31,10,21,330,575,615,1512,50000,ed25519_real_signatures
+cert_timing,64,21,43,926,1267,1638,3096,50000,ed25519_real_signatures
+cert_timing,100,33,67,1039,1939,1976,4824,50000,ed25519_real_signatures
+cert_timing,200,66,134,2059,3910,3952,9648,50000,ed25519_real_signatures

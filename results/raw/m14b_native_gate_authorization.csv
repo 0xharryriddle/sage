@@ -1,0 +1,4 @@
+experiment,arm,strategy,commit_quorum,commit_q_value,cutover_gate,gate_q_value,n,f,h_c,partition_split,trials_observed,unauthorized_migrations,unauthorized_rate,forked,migrated_any_mean,max_height_mean,reached_h_c,inconclusive,vacuous
+m14b_native_gate_authorization,A_sage,sage,generalized_bft,4,n_minus_f,5,6,1,4,4,10,0,0.00,0,0.00,3.00,0,0,false
+m14b_native_gate_authorization,C_blind_gen,sageblind,generalized_bft,4,none,5,6,1,4,4,10,10,1.00,0,4.00,10.00,10,0,false
+m14b_native_gate_authorization,B_blind_unsafe,sageblind,unsafe_2f_plus_1,3,none,5,6,1,4,4,10,10,1.00,0,4.00,10.00,10,0,false

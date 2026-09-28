@@ -1,0 +1,306 @@
+% ===================================================================== PROTOCOL
+\section{The \sage{} protocol}
+\label{sec:protocol}
+
+\sage{} combines a single-finalizer dual-run, a quorum-certified boundary, an $n-f$-signed
+migration manifest, evidence of durable source retirement, and deadline-bounded rollback under
+two-tier finality. \Cref{alg:sage} specifies the design-level controller for a correct validator.
+
+\subsection{Migration schedule as a transition system}
+Governance fixes a schedule $\hd<\hc\le\hr$ in platform state $P$; the schedule can be amended only
+through the legacy engine before $\hd$. Here $\hc$ is the \emph{earliest} admissible transition; the
+\CutCert{} later fixes the actual height $\hs=\hb+1\ge\hc$, and a reversible handoff requires
+$\hs<\hr$. Authority is defined by the transition system of \cref{fig:lts} over the phases
+$\{\phase{v1},\phase{dual},\phase{v2},\phase{rollback},\phase{sealed}\}$:
+\begin{equation}
+  \Auth(h)=
+  \begin{cases}
+    \Csrc^{g_1} & \text{in }\phase{v1}\text{ and }\phase{dual},\\
+    \Csrc^{g_1'},\ g_1'>g_1 & \text{in }\phase{rollback},\\
+    \Ctgt & \text{in }\phase{v2}\text{ and }\phase{sealed}.
+  \end{cases}
+  \label{eq:authority}
+\end{equation}
+Here $\Auth$ names the designated engine generation, not the existence of a usable finalization
+quorum. After a valid \CutCert{} forms, durable Rule~\ref{rule:lock} and $q_1>2f$ exclude source
+finalization above $\hb$, while the target is not yet enabled. This certification pause has no
+permitted finalizer above the boundary, even though the controller remains in \phase{dual}.
+Abort has priority over every other transition in \phase{v2}, and \phase{dual} self-loops until the
+readiness predicate holds. The component state machine splits \phase{dual} into \phase{fencing} and
+\phase{activating} sub-phases, which order manifest adoption, durable fence installation, and
+certificate collection ahead of target bootstrap in the specified contract. The complete network
+path through these stages is not established by the component states alone.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_lts.pdf}
+\caption{\sage{} as a labelled transition system. Target authority requires the \CutCert, an adopted
+\ManCert, a durable local fence, and a \FenceCert. In \phase{v2} a valid \AbortCert{} before $\hr$
+takes priority and binds a fresh generation $g_1'>g_1$. After $\hr$, only a \SealCert{} reaches
+\phase{sealed}.}
+\label{fig:lts}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_arch.pdf}
+\caption{Dual-run data path. The legacy engine alone finalizes while the target re-executes finalized
+blocks; target authority requires \CutCert, \ManCert, and \FenceCert{} stages.}
+\label{fig:arch}
+\end{figure*}
+
+\subsection{Single-finalizer dual-run}
+The central invariant is that at every height at most one engine is authorized to finalize. During
+$[\hd,\hs)$, $\Csrc$ orders and finalizes $B_h$ exactly as before $\hd$, and $\Ctgt$ never proposes.
+
+\begin{definition}[Shadow mode]
+\label{def:shadow}
+An engine runs in shadow mode at height $h$ if, for the canonical block $B_h$ finalized by the
+authoritative engine, each correct validator runs the shadow engine's validation on $B_h$. It records
+$\sigma_h\in\{\mathsf{valid},\mathsf{invalid}\}$ and a root $\tilde r_h$ (with $\tilde r_h=\bot$ on
+rejection), and does not propose or finalize. Shadow validation is a side-effect-free function of
+$(B_h,X_{h-1})$ and never blocks finalization.
+\end{definition}
+
+\Cref{fig:arch} shows the resulting data path. The controller of validator $i$ collects the shadow
+verdicts, and the validator is \emph{ready} at height $h$ when the last $\kappa$ verdicts are valid and
+the roots match:
+\begin{equation}
+  \begin{aligned}
+  \mathrm{Ready}_i(h)\iff{}& h\ge\hc-1\\
+  &\wedge\;\forall j\in(h-\kappa,\,h]:\ \sigma_j=\mathsf{valid}\wedge\tilde r_j=r_j .
+  \end{aligned}
+  \label{eq:ready}
+\end{equation}
+
+\subsection{Quorum-certified cutover}
+Governance cannot precommit a hash that does not yet exist. It therefore fixes only the policy part
+$G=\langle\mathrm{cid},e,\hc,g_1,g_2\rangle$ before dual-run. The concrete boundary tuple depends on
+the data:
+\begin{equation}
+  \beta=\bigl\langle \mathrm{cid},\,e,\,\hb,\,\Hash(B_{\hb}),\,r_{\hb}\bigr\rangle,\qquad \hs=\hb+1 .
+  \label{eq:beta}
+\end{equation}
+
+\begin{definition}[Readiness attestation and \CutCert]
+\label{def:cutcert}
+In epoch $e$, a correct validator durably locks its first eligible $\beta$ and emits at most one
+attestation $\mathsf{att}_i=\mathrm{Sign}_i\langle\textsc{ready},\beta\rangle$. It signs only when
+$\mathrm{Ready}_i(\hb)$ holds and it has locally finalized and recomputed $B_{\hb}$. A \CutCert{}
+$\pi_{\mathrm B}$ is a set of $n-f$ valid attestations on one identical tuple. Attestations that name
+different heights, parents, or roots never combine. If the committee does not converge on one body,
+the migration stays pending. Selecting a later candidate would require a separate close-and-retry
+protocol, which this paper does not analyze.
+\end{definition}
+
+\begin{rulebox}[Attestation lock]
+\label{rule:lock}
+A correct validator may attest at $\hb$ only if it has issued no source proposal, vote, or
+finalization authorization above $\hb$ in generation $g_1$, including authorizations prepared for
+transmission. Before releasing $\mathsf{att}_i$, it atomically persists both its one-body slot
+$(e,\beta)$ and the prohibition of every such authorization at $h>\hb$ in $g_1$. Attestation and
+source-signing paths serialize against this durable record: neither buffered work nor an alternate
+source handler may bypass it. The write completes before the signature becomes externally visible.
+A restart reloads and enforces the prohibition before enabling signing, retransmission, or consensus
+message processing. Ambiguous recovery fails closed. The prohibition never expires in $g_1$;
+certified recovery may enable only a fresh $g_1'>g_1$.
+\end{rulebox}
+
+Rule~\ref{rule:lock} makes a certified boundary actionable. Without its prohibition, source
+authorizations above $\hb$ issued before local fence installation may disqualify correct signers
+from later fence sharing and leave the handoff pending (\cref{lem:fence-live}). The
+fence-only theorem does not assume Rule~\ref{rule:lock}; the admitted locked design does, and its
+\CutCert{} already excludes a source quorum under $q_1>2f$ (\cref{lem:fence-live}). Persisting
+$\beta$ without enforcing the prohibition after restart is insufficient. This complete invariant
+has not been established on the evaluated network path (\cref{tab:status}).
+
+The cost is a deliberate source pause during certification. \Cref{th:liveness} bounds it only on
+the successful, post-GST path with a common eligible candidate. If validators lock incompatible
+candidates, or too few eligible signers remain, they cannot unlock by timeout or silently switch to
+a later height. Migration may then remain pending indefinitely; a safe close-and-retry protocol is
+outside this design. This is a practical liveness restriction, not just a missing optimization.
+
+The implementation carries $\pi_{\mathrm B}$ as an $n-f$ Ed25519 multi-signature, that is, a list of
+individual EUF-CMA signatures with size $O(n)$. A threshold or Boneh--Lynn--Shacham (BLS) aggregate
+could preserve the abstract threshold argument, but would require a compatible signer/key model,
+setup and share validation. No aggregated implementation or timing is evaluated here.
+
+\subsection{Quorum-signed migration manifest}
+The complete signing body is
+\begin{equation}
+  \mathcal M_{\mathrm B}=\bigl\langle \mathrm{cid},e,\mathrm{cfg},\hb{+}1,\Hash(B_{\hb}),r_{\hb},
+  g_1,g_2,\Hash_{\mathrm{tool}},r_{\mathrm{ctx}},\Hash(\pi_{\mathrm B})\bigr\rangle ,
+  \label{eq:manifest}
+\end{equation}
+where $\Hash_{\mathrm{tool}}$ binds the migration tooling and $r_{\mathrm{ctx}}$ is the optional
+replay-context root. A \ManCert{} $\pi_{\mathrm M}$ contains $n-f$ shares over $\Hash(\mathcal M_{\mathrm
+B})$ in the manifest authority domain. A correct validator accepts only if (i) $\pi_{\mathrm B}$
+verifies on $\beta$; (ii) $\pi_{\mathrm M}$ verifies on the complete body; (iii) the boundary parent and
+root match its own finalized legacy tip; and (iv) its durable epoch slot is empty or already holds
+the same body. Each correct validator issues at most one manifest share per epoch, and the durable
+slot enforces this.
+
+\subsection{Source-fence certificate}
+\begin{definition}[Source fence and \FenceCert]
+\label{def:fencecert}
+Governance admits a source-finality policy only if its quorum $q_1$ satisfies
+\eqref{eq:intro-fence}. For a certified boundary with transition height $\hs$, a correct validator
+(1)~durably adopts the complete manifest; (2)~durably installs a fence that rejects source proposals,
+votes, and finalization at every $h\ge\hs$; (3)~confirms that it has issued no source authorization
+at any $h\ge\hs$; and only then (4)~releases a domain-separated fence share. The share binds the
+chain, epoch, source engine and generation, $\hs$, boundary block and root, $\Hash(\pi_{\mathrm B})$,
+$\Hash(\mathcal M_{\mathrm B})$, the source-finality policy, and the fence policy. A \FenceCert{}
+contains $q_F$ matching shares. Target authority is exposed only after the validator verifies the
+\ManCert{} and the \FenceCert{} and confirms its own durable fence. A correct validator never releases
+a fence share before installation and never resumes a fenced generation.
+\end{definition}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_seq.pdf}
+\caption{Certified handoff at a correct validator. Manifest adoption and durable fence installation
+precede fence sharing; the \FenceCert{} precedes target authority. Dashed dual-run messages never finalize.}
+\label{fig:seq}
+\end{figure*}
+
+\Cref{fig:seq} shows the specified order as messages at one validator. The component contract
+requires verification and persistence of the \CutCert, durable manifest adoption, and a fence write
+before sharing. Once $q_F$ matching shares are present, the contract requires assembly and
+verification of the \FenceCert{} against the committee and the admitted quorum pair, followed by
+persistence. Target authority may be exposed only when the durable fence, adopted manifest, and
+verified \FenceCert{} agree on the same boundary. A conforming restart reloads those records before
+target bootstrap. Both governance admission and \FenceCert{} verification evaluate
+\eqref{eq:intro-fence}. These component operations do not constitute an exercised network
+transport path for the three certificates (\cref{tab:status}). The extra fence round certifies
+policy-bound retirement and manifest adoption by its correct signers; it does not further reduce
+the residual voting set already excluded by a valid \CutCert{} under durable \cref{rule:lock}.
+
+\paragraph{State and proof dependencies}
+The two branches below distinguish retirement from activation:
+\begin{equation}
+\begin{gathered}
+\text{durable Rule~\ref{rule:lock}}+\CutCert+(q_1>2f)\\
+\Longrightarrow\ \text{source quiescence},\\[0.3ex]
+\CutCert\to\ManCert\to\text{local durable fence}\\
+\to\text{fence share}\to\FenceCert,\\[0.3ex]
+\CutCert+\ManCert+\text{local durable fence}+\FenceCert\\
+\Longrightarrow\ \text{activation permitted}.
+\end{gathered}
+\label{eq:dependencies}
+\end{equation}
+The first branch proves old-generation exclusion under the durable-lock premise. The second
+certifies manifest- and policy-bound retirement by its correct signers; the last is the chosen
+per-validator activation gate, not a proof that the certificate is independently necessary for
+source exclusion. The fence-only theorem uses the second branch without the readiness-lock
+premise. No branch assumes that every validator receives the certificates.
+
+\subsection{Two-tier finality and bounded rollback}
+Legacy blocks below $\hs$ are \emph{absolutely} final. Target blocks are \emph{provisional} in
+\phase{v2}; they become absolutely final only when a valid $n-f$ \SealCert{} moves the controller to
+\phase{sealed}. The deadline $\hr$ closes the rollback window and makes sealing eligible, but height
+alone never seals. A client receipt reports the tier that the committing engine stamped into the block
+header, and that tier sits inside the signed finality payload. A serving validator therefore cannot
+relabel a provisional block as absolute without invalidating the certificate. When a \SealCert{}
+covers a prefix, its proof can establish effective absolute finality for receipts at or below the
+sealed height; the original signed provisional receipt must remain unchanged. Height alone is not
+a promotion proof. End-to-end client receipt reconciliation is outside the evaluated path.
+Cross-chain actions and other irreversible external effects must wait for a verified \SealCert{}
+covering the relevant block. Restoring ledger state cannot revoke an external payment, message, or
+physical action that was already performed.
+
+Local and certified aborts have different effects. A target stall or a manifest failure may emit an
+AbortVote and restore the local state to the anchor $X_{\hs-1}$, but committee authority does not
+change. Only a valid $n-f$ \AbortCert{}, issued before $\hr$ under an exclusive terminal-signing lock
+and binding a fresh $g_1'>g_1$, returns authority to $\Csrc^{g_1'}$. The old generation stays fenced.
+Timeouts are detected by a progress ticker that runs off the finalization path. It is armed when
+target authority is exposed, refreshed only by a strictly advancing target commit, and refused at or
+after $\hr$.
+
+\paragraph{Replay context}
+Deterministic replay of a discarded suffix onto $\Csrc^{g_1'}$ requires that execution depends only on
+the ordered transactions and parent state (\cref{as:metadata}). The manifest binds a replay-context
+root. Each provisional block carries the chain identifier, height, timestamp, beneficiary, base fee,
+randomness, and an optional oracle snapshot. A missing, reordered, or mismatched record makes rollback
+\emph{fail closed}, which turns metadata dependence into an explicit, checkable input. The canonical
+record occupies $114+|\mathrm{cid}|$ bytes, or $122$\,B with an eight-byte chain identifier, plus $40$\,B
+for an oracle root. A $1000$-block window therefore needs about $119$--$158$\,KiB per validator.
+\Cref{tab:rollback-compat} summarizes the behaviour by workload class.
+
+\begin{table}[t]
+\centering
+\caption{Design-level rollback contract by workload class. Context admission is implemented;
+application execution and client reconciliation are not evaluated.}
+\label{tab:rollback-compat}
+\small
+\renewcommand{\arraystretch}{1.14}
+\rowcolors{2}{rowtint}{white}
+\begin{tabular}{@{}L{0.30\columnwidth}L{0.24\columnwidth}L{0.36\columnwidth}@{}}
+\toprule
+\textbf{Workload} & \textbf{Replay eligibility} & \textbf{Required behaviour} \\
+\midrule
+Metadata-independent & By replay lemma & Execute ordered suffix from anchor \\
+Reads block metadata & If captured in context & Consume bound context; else refuse \\
+Live oracle input & If snapshot root bound & Consume bound snapshot; else refuse \\
+Cross-chain actions on provisional state & Not \sage's to replay & Integrator waits for \SealCert \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{algorithm}[t]
+\caption{Design-level \sage{} controller at a correct validator $i$}
+\label{alg:sage}
+\small
+\begin{algorithmic}[1]
+\Require schedule $(\hd,\hc,\hr)$, window $\kappa$, admitted $(q_1,q_F)$ with $q_F+q_1>n+f$
+\State $\mathit{phase}\gets\phase{v1}$;\ $\hs\gets\bot$;\ $\mathit{streak}\gets0$
+\For{each block, certificate, timer, or recovery event}
+  \State on recovery reload Rule~\ref{rule:lock} and generation fences before source use or buffered releases
+  \State update retained evidence; let $h$ be the local committed tip
+  \If{$\mathit{phase}=\phase{v1}\wedge h\ge\hd$} $\mathit{phase}\gets\phase{dual}$ \EndIf
+  \If{$\mathit{phase}=\phase{v2}\wedge h<\hr\wedge$ valid \AbortCert{} binds $g_1'>g_1$}
+    \State restore $X_{\hs-1}$; $\Auth\gets\Csrc^{g_1'}$; $\mathit{phase}\gets\phase{rollback}$; \textbf{continue}
+  \EndIf
+  \If{$\mathit{phase}=\phase{dual}$ and event is a newly finalized block $B_h$}
+    \State $(\sigma_h,\tilde r_h)\gets\Ctgt.\textsc{ShadowValidate}(B_h)$
+    \State $\mathit{streak}\gets(\sigma_h=\mathsf{valid}\wedge\tilde r_h=r_h)\,?\,\mathit{streak}+1:0$
+    \If{$\mathrm{Ready}_i(h)$ and slot $(e,\cdot)$ empty and Rule~\ref{rule:lock} eligibility holds}
+      \State atomically persist $(e,\beta)$ and source prohibition before releasing $\mathsf{att}_i$
+    \EndIf
+  \EndIf
+  \If{$\mathit{phase}=\phase{dual}$}
+    \State when $n-f$ matching attestations exist: verify and persist $\pi_{\mathrm B}(\beta)$; set $\hs\gets\hb+1$
+    \State when $\pi_{\mathrm B}$ and local boundary checks pass: issue one durable manifest share
+    \State when valid $\pi_{\mathrm M}$ exists: verify and durably adopt $\mathcal M_{\mathrm B}$
+    \State after adoption and no prior conflicting source authorization: install durable fence, then release share
+    \If{matching valid \CutCert, \ManCert, \FenceCert{} and local durable fence, with $\hs<\hr$}
+      \State initialize target from certified anchor; persist activation; $\Auth\gets\Ctgt$; $\mathit{phase}\gets\phase{v2}$
+    \EndIf
+  \EndIf
+  \State timer expiry may request abort; it never changes authority without a valid \AbortCert
+  \If{$\mathit{phase}=\phase{v2}\wedge h\ge\hr\wedge$ valid \SealCert} $\mathit{phase}\gets\phase{sealed}$ \EndIf
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+Certificate processing and retransmission are independent of new finalizations: once the source
+pauses, a block-only callback cannot complete the remaining handoff. Each stage is idempotent on its
+durable identity. The pseudocode specifies the event dependencies; it is not a claim that the
+network implementation already implements this dispatcher or terminal-certificate convergence.
+
+\subsection{Design rationale}
+The mechanisms have overlapping safety effects and distinct evidence roles. A scheduled blind
+cutover supplies no committee-certified boundary. The process controls in \cref{sec:rq2} isolate
+unsafe target thresholds from unauthorized crossings; they do not establish that every ungated
+switch forks. Dual-run with only local authorization lets
+partition sides choose different boundaries, which \cref{th:unique} excludes through certificate
+intersection and signer locking. Equality with a proposer-supplied manifest hash authenticates
+nothing, so \cref{th:unforge} needs a quorum-signed body. Under durable \cref{rule:lock} and
+$q_1>2f$, removing only \FenceCert{} does not permit residual source finalization. The rejected
+policy in \cref{cor:cross-split} illustrates the fence-only contract's bound, not necessity inside
+the admitted locked design. \FenceCert{} instead attests the complete retirement identity after
+manifest adoption (\cref{prop:retirement-evidence}). Without a rollback window, a
+target failure after cutover becomes irreversible, which is the Fabric~v3 behaviour. Finality gadgets
+such as Casper~FFG~\cite{casperffg} and GRANDPA~\cite{grandpa} add a checkpoint predicate over an
+\emph{unchanged} block producer. They neither initialize a new engine's metadata
+(\cref{def:bootstrap}) nor certify a reversible boundary between quorum families, so they complement
+\sage{} rather than replace it.

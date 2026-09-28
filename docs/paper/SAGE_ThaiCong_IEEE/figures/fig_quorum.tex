@@ -1,0 +1,89 @@
+% DRAW-SPEC
+% message: (a) The boundary-certificate threshold must lie in ((n+f)/2, n-f]; the familiar 2f+1 leaves
+%          this interval as soon as n > 3f+1. (b) A fence quorum q_F excludes every residual source
+%          quorum q_1 iff q_F + q_1 > n + f; with q_F <= n - f this is feasible iff q_1 > 2f.
+% data: data/quorum_strips.csv, data/fence_lattice.csv (analytic enumeration by ../rebuild.py)
+% encodings: class by marker shape AND fill (not colour alone); 2f+1 ringed; n-f triangle above.
+% target: 183 mm x 70 mm; final text >= 6.5 pt.
+\documentclass[tikz,border=0pt]{standalone}
+\usepackage{draw-paper}
+\def\FigureWidthMM{183}
+\def\FigureHeightMM{70}
+\pgfplotsset{every axis/.append style={draw axis,axis x line*=bottom,axis y line*=left}}
+\begin{document}
+\begin{tikzpicture}[draw canvas]
+  \path[use as bounding box] (0,0) rectangle (\FigureWidthMM,\FigureHeightMM);
+
+  % ================= (a) threshold strips =================
+  \DrawPanelLabel{3}{68}{a}
+  \begin{axis}[at={(24mm,22mm)},anchor=south west,width=74mm,height=36mm,
+      xmin=0.3,xmax=20.7,ymin=0.4,ymax=5.6,
+      xtick={1,3,5,7,9,11,13,15,17,19},
+      ytick={1,2,3,4,5},yticklabels={{$(20,6)$},{$(10,2)$},{$(7,2)$},{$(6,1)$},{$(4,1)$}},
+      ylabel={$(n,f)$},xlabel={certificate threshold $q$},
+      title={Boundary certificate: $\tfrac{n+f}{2}<q\le n-f$},
+      xmajorgrids,y axis line style={draw=none},ytick style={draw=none}]
+    % admissible interval bands ((n+f)/2, n-f]
+    \foreach \y/\lo/\hi in {5/2.5/3,4/3.5/5,3/4.5/5,2/6/8,1/13/14} {
+      \edef\tmp{\noexpand\fill[drawTeal!16,rounded corners=0.6mm] (axis cs:\lo+0.1,\y-0.28) rectangle (axis cs:\hi+0.42,\y+0.28);}\tmp
+    }
+    \addplot[only marks,mark=o,mark size=1.35pt,draw=drawSlate!80,line width=0.5pt,
+      x filter/.expression={\thisrow{cls}==0 ? x : nan}] table[x=q,y=row,col sep=comma]{data/quorum_strips.csv};
+    \addplot[only marks,mark=*,mark size=1.7pt,draw=drawTeal!80!black,fill=drawTeal,
+      x filter/.expression={\thisrow{cls}==1 ? x : nan}] table[x=q,y=row,col sep=comma]{data/quorum_strips.csv};
+    \addplot[only marks,mark=x,mark size=1.6pt,draw=drawRose,line width=0.8pt,
+      x filter/.expression={\thisrow{cls}==2 ? x : nan}] table[x=q,y=row,col sep=comma]{data/quorum_strips.csv};
+    % 2f+1 ring and n-f marker
+    \addplot[only marks,mark=o,mark size=3.0pt,draw=drawOrange,line width=0.85pt,
+      x filter/.expression={\thisrow{twof1}==1 ? x : nan}] table[x=q,y=row,col sep=comma]{data/quorum_strips.csv};
+    \addplot[only marks,mark=triangle*,mark size=1.6pt,draw=drawPlum,fill=drawPlum,
+      x filter/.expression={\thisrow{nf}==1 ? x : nan}] table[x=q,y expr=\thisrow{row}+0.36,col sep=comma]{data/quorum_strips.csv};
+    \node[anchor=west,font=\sffamily\fontsize{6.4}{7}\selectfont,text=drawOrange!85!black,fill=white,inner sep=0.6pt] at (axis cs:13.4,1.52) {$2f{+}1=13$ unsafe};
+    \node[anchor=west,font=\sffamily\fontsize{6.4}{7}\selectfont,text=drawOrange!85!black,fill=white,inner sep=0.6pt] at (axis cs:9.3,2.0) {$2f{+}1=5$ unsafe};
+  \end{axis}
+  % legend (a), reserved strip
+  \begin{scope}[font=\sffamily\fontsize{6.5}{7.2}\selectfont]
+    \draw[drawSlate!80,line width=0.5pt] (26,8.6) circle (0.48);
+    \node[anchor=west] at (27,8.6) {intersection-unsafe};
+    \fill[drawTeal!80!black] (50,8.6) circle (0.6);
+    \node[anchor=west] at (51,8.6) {safe \& available};
+    \draw[drawRose,line width=0.8pt] (71.4,8.0) -- (72.6,9.2) (71.4,9.2) -- (72.6,8.0);
+    \node[anchor=west] at (73.2,8.6) {unavailable};
+    \draw[drawOrange,line width=0.85pt] (88.5,8.6) circle (1.05);
+    \node[anchor=west] at (90,8.6) {$2f{+}1$};
+    \fill[drawPlum] (25.4,3.4) -- ++(0.62,1.1) -- ++(0.62,-1.1) -- cycle;
+    \node[anchor=west] at (27.6,3.95) {SAGE choice $q=n-f$ (maximal available threshold)};
+  \end{scope}
+
+  % ================= (b) fence admission lattice =================
+  \DrawPanelLabel{110}{68}{b}
+  \begin{axis}[at={(124mm,22mm)},anchor=south west,width=50mm,height=36mm,
+      xmin=0.5,xmax=7.5,ymin=0.5,ymax=7.5,
+      xtick={1,...,7},ytick={1,...,7},
+      xlabel={source quorum $q_1$},ylabel={fence quorum $q_F$},
+      title={Fence-only admission, $n{=}7$, $f{=}2$},
+      grid=major,axis lines*=left]
+    \fill[drawTeal!15] (axis cs:4,5) -- (axis cs:7.5,5) -- (axis cs:7.5,1.5) -- cycle;
+    \fill[drawSlate!10] (axis cs:0.5,5) rectangle (axis cs:7.5,7.5);
+    \draw[drawInk,densely dashed,line width=0.75pt] (axis cs:1.5,7.5) -- (axis cs:7.5,1.5);
+    \draw[drawPlum,line width=0.85pt] (axis cs:0.5,5) -- (axis cs:7.5,5);
+    \draw[drawOrange,densely dotted,line width=0.9pt] (axis cs:4,0.5) -- (axis cs:4,7.5);
+    \addplot[only marks,mark=*,mark size=0.9pt,draw=drawSlate!70,fill=drawSlate!70,
+      x filter/.expression={\thisrow{cls}==0 ? x : nan}] table[x=q1,y=qF,col sep=comma]{data/fence_lattice.csv};
+    \addplot[only marks,mark=o,mark size=1.4pt,draw=drawSlate,line width=0.5pt,
+      x filter/.expression={\thisrow{cls}==2 ? x : nan}] table[x=q1,y=qF,col sep=comma]{data/fence_lattice.csv};
+    \addplot[only marks,mark=*,mark size=1.8pt,draw=drawTeal!80!black,fill=drawTeal,
+      x filter/.expression={\thisrow{cls}==1 ? x : nan}] table[x=q1,y=qF,col sep=comma]{data/fence_lattice.csv};
+    \node[draw=drawRose,line width=0.9pt,circle,minimum size=3.2mm,inner sep=0pt] at (axis cs:4,5) {};
+    \node[draw=drawPlum,line width=0.9pt,rectangle,minimum size=3.0mm,inner sep=0pt] at (axis cs:5,5) {};
+  \end{axis}
+  % annotations (b) in reserved right strip
+  \begin{scope}[font=\sffamily\fontsize{6.5}{7.2}\selectfont]
+    \draw[drawInk,densely dashed,line width=0.75pt] (110,8.6) -- ++(4,0); \node[anchor=west] at (114.4,8.6) {$q_F+q_1=n+f$};
+    \draw[drawPlum,line width=0.85pt] (139,8.6) -- ++(4,0); \node[anchor=west] at (143.4,8.6) {$q_F=n-f$};
+    \draw[drawOrange,densely dotted,line width=0.9pt] (162,8.6) -- ++(4,0); \node[anchor=west] at (166.4,8.6) {$q_1=2f$};
+    \draw[drawRose,line width=0.9pt] (111.3,3.9) circle (1.3); \node[anchor=west] at (113.2,3.9) {majority $q_1{=}4$: equality (Cor.\,1)};
+    \draw[drawPlum,line width=0.9pt] (152.2,2.7) rectangle ++(2.4,2.4); \node[anchor=west] at (155.2,3.9) {worked example};
+  \end{scope}
+\end{tikzpicture}
+\end{document}

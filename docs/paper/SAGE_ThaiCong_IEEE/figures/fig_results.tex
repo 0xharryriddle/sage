@@ -1,0 +1,93 @@
+% DRAW-SPEC
+% message: Separate conflict from authorization controls (a); partial boundary evidence costs
+%          ~0.1 ms of simulator time (b), is flat in n (c), and is proportional to message delay (d).
+% statistical units:
+%   (a) process trials of fixed constructed schedules at n=6,f=1; rate = k/n; 95% Wilson score intervals.
+%   (b) 60 seeds (RQ1, n=20, f=6, kappa=8); empirical CDF, one step per seed.
+%   (c) mean and min-max of 20 retained simulator trials per n; every trial migrated (20/20).
+%   (d) mean of 20 simulator trials per delay; log-log least-squares slope reported.
+% data: data/rq2_controls.csv, data/cutover_ecdf.csv, data/scaling.csv, data/delay.csv
+% generator: ../rebuild.py; retained inputs are hash-checked, not rerun or synthesized.
+% target: 183 mm x 104 mm; final text >= 6.5 pt.
+\documentclass[tikz,border=0pt]{standalone}
+\usepackage{draw-paper}
+\def\FigureWidthMM{183}
+\def\FigureHeightMM{104}
+\pgfplotsset{every axis/.append style={draw axis,axis x line*=bottom,axis y line*=left}}
+\begin{document}
+\begin{tikzpicture}[draw canvas]
+  \path[use as bounding box] (0,0) rectangle (\FigureWidthMM,\FigureHeightMM);
+
+  % ---------------- (a) RQ2 process controls ----------------
+  \DrawPanelLabel{3}{101}{a}
+  \begin{axis}[at={(37mm,62mm)},anchor=south west,width=48mm,height=32mm,
+      xmin=-0.04,xmax=1.04,ymin=0.4,ymax=6.6,
+      xtick={0,0.5,1},xticklabels={0,0.5,1},
+      ytick={1,2,3,4,5,6},
+      yticklabels={{$q{=}3$, ungated},{$q{=}4$, ungated},{$q{=}4$, CutCert-gated},{$q{=}3$, ungated},{$q{=}5$, ungated},{$q{=}5$, CutCert-gated}},
+      xlabel={observed rate (nominal Wilson interval)},
+      xmajorgrids,title={Process controls, $n{=}6$, $f{=}1$}]
+    \fill[drawOrange!6] (axis cs:-0.04,3.5) rectangle (axis cs:1.04,6.6);
+    \fill[drawBlue!5] (axis cs:-0.04,0.4) rectangle (axis cs:1.04,3.5);
+    \draw[drawSlate!60,line width=0.4pt] (axis cs:-0.04,3.5) -- (axis cs:1.04,3.5);
+    \addplot[only marks,mark=none,draw=drawOrange,
+      error bars/.cd,x dir=both,x explicit,error bar style={line width=0.9pt,draw=drawOrange},error mark options={rotate=90,mark size=1.3pt,draw=drawOrange}]
+      table[x=rate,y=y,x error minus expr=\thisrow{rate}-\thisrow{lo},x error plus expr=\thisrow{hi}-\thisrow{rate},
+        col sep=comma,restrict expr to domain={\thisrow{y}}{4:6}]{data/rq2_controls.csv};
+    \addplot[only marks,draw method b,mark size=1.8pt,
+      restrict expr to domain={\thisrow{y}}{4:6}] table[x=rate,y=y,col sep=comma]{data/rq2_controls.csv};
+    \addplot[only marks,mark=none,draw=drawBlue,
+      error bars/.cd,x dir=both,x explicit,error bar style={line width=0.9pt,draw=drawBlue},error mark options={rotate=90,mark size=1.3pt,draw=drawBlue}]
+      table[x=rate,y=y,x error minus expr=\thisrow{rate}-\thisrow{lo},x error plus expr=\thisrow{hi}-\thisrow{rate},
+        col sep=comma,restrict expr to domain={\thisrow{y}}{1:3}]{data/rq2_controls.csv};
+    \addplot[only marks,draw method a,mark size=1.8pt,
+      restrict expr to domain={\thisrow{y}}{1:3}] table[x=rate,y=y,col sep=comma]{data/rq2_controls.csv};
+    \node[anchor=east,font=\sffamily\fontsize{6.3}{7}\selectfont,text=drawOrange!80!black] at (axis cs:1.02,6.25) {conflict, 5 trials};
+    \node[anchor=east,font=\sffamily\fontsize{6.3}{7}\selectfont,text=drawBlue!80!black] at (axis cs:1.02,2.85) {unauthorized, 10 trials};
+  \end{axis}
+
+  % ---------------- (b) ECDF ----------------
+  \DrawPanelLabel{97}{101}{b}
+  \begin{axis}[at={(110mm,62mm)},anchor=south west,width=66mm,height=32mm,
+      xmin=86,xmax=132,ymin=0,ymax=1.04,ytick={0,0.25,0.5,0.75,1},
+      xlabel={cutover-evidence latency ($\mu$s, simulator time)},ylabel={empirical CDF},
+      ymajorgrids,title={Partial-path RQ1, $n{=}20$, $f{=}6$, 60 seeds}]
+    \addplot[const plot,draw=drawBlue,line width=0.9pt,mark=none] table[x=x,y=F,col sep=comma]{data/cutover_ecdf.csv};
+    \draw[drawOrange,densely dashed,line width=0.7pt] (axis cs:111.5,0) -- (axis cs:111.5,0.5) -- (axis cs:86,0.5);
+    \node[anchor=north west,font=\sffamily\fontsize{6.4}{7}\selectfont,text=drawOrange!85!black,fill=white,inner sep=0.8pt] at (axis cs:112.3,0.36) {median $111.5$};
+    \node[anchor=south east,font=\sffamily\fontsize{6.4}{7}\selectfont,text=drawInk,fill=white,inner sep=0.8pt] at (axis cs:131,0.06) {mean $109.6$, max $128$};
+  \end{axis}
+
+  % ---------------- (c) scaling ----------------
+  \DrawPanelLabel{3}{47}{c}
+  \begin{semilogxaxis}[at={(17mm,12.5mm)},anchor=south west,width=68mm,height=27mm,
+      xmin=3.3,xmax=125,ymin=65,ymax=160,
+      xtick={4,7,10,20,31,50,100},minor xtick={},xticklabels={4,7,10,20,31,50,100},
+      xlabel={committee size $n$ (log scale)},ylabel={latency ($\mu$s)},
+      ymajorgrids,title={Scaling: mean and range, 20 seeds}]
+    \addplot[only marks,mark=none,draw=drawBlue!65,
+      error bars/.cd,y dir=both,y explicit,error bar style={line width=0.6pt},error mark options={mark size=1pt}]
+      table[x=n,y=lat_us,y error minus expr=\thisrow{lat_us}-\thisrow{min_us},
+        y error plus expr=\thisrow{max_us}-\thisrow{lat_us},col sep=comma]{data/scaling.csv};
+    \addplot[draw method a,fill=none,mark options={fill=drawBlue}] table[x=n,y=lat_us,col sep=comma]{data/scaling.csv};
+    \node[anchor=north,font=\sffamily\fontsize{6.4}{7}\selectfont,text=drawTeal!70!black,fill=white,inner sep=0.8pt] at (axis cs:20,79) {event time; completion $20/20$ at every $n$};
+  \end{semilogxaxis}
+
+  % ---------------- (d) delay sensitivity ----------------
+  \DrawPanelLabel{97}{47}{d}
+  \begin{loglogaxis}[at={(110mm,12.5mm)},anchor=south west,width=66mm,height=27mm,
+      xmin=15,xmax=850,ymin=35,ymax=2400,
+      xtick={20,40,80,160,320,640},minor xtick={},minor ytick={},xticklabels={20,40,80,160,320,640},
+      ytick={50,100,200,500,1000,2000},yticklabels={50,100,200,500,1000,2000},
+      xlabel={mean one-way message delay (ms)},ylabel={latency (ms)},
+      ymajorgrids,title={Delay sensitivity: mean and range, 20 seeds}]
+    \addplot[draw=drawSlate,densely dashed,line width=0.7pt,mark=none,domain=15:850,samples=2] {10^(0.4321)*x^(0.9899)};
+    \addplot[only marks,mark=none,draw=drawBlue!65,
+      error bars/.cd,y dir=both,y explicit,error bar style={line width=0.6pt},error mark options={mark size=1pt}]
+      table[x=delay_ms,y=lat_ms,y error minus expr=\thisrow{lat_ms}-\thisrow{min_ms},
+        y error plus expr=\thisrow{max_ms}-\thisrow{lat_ms},col sep=comma]{data/delay.csv};
+    \addplot[draw method a,fill=none,mark options={fill=drawBlue}] table[x=delay_ms,y=lat_ms,col sep=comma]{data/delay.csv};
+    \node[anchor=north west,font=\sffamily\fontsize{6.4}{7}\selectfont,text=drawInk,fill=white,inner sep=0.8pt,align=left] at (axis cs:18,1900) {log--log slope $0.99$\\latency $\approx 2.5$--$2.7\times$ delay};
+  \end{loglogaxis}
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,195 @@
+% ===================================================================== MODEL
+\section{System and threat model}
+\label{sec:model}
+
+\subsection{Network, committee, and adversary}
+\sage{} targets monolithic permissioned chains with deterministic finality and a fixed migration
+committee; probabilistic-finality sources, concurrent membership change, and sharded state are outside
+the model. We assume partial synchrony~\cite{dls}. Before an unknown global stabilization time (GST), message
+delays are arbitrary; after GST they are bounded by $\Delta$. Protocol messages travel over
+authenticated channels. The analysis fixes one committee
+$\VM=\mathcal V_1=\mathcal V_2$ of size $n$, with no membership change during $[\hd,\hr)$. A single
+corruption set contains at most $f\le\min(f_1,f_2)$ validators, where $f_1$ and $f_2$ are the fault
+thresholds of the source and target engines. The adversary schedules crashes and partitions, delays
+messages before GST, and cannot forge signatures or find hash collisions. Distinct source and target
+committees would require a joint-quorum rule and an explicit key mapping; our theorems do not cover
+that setting.
+
+\paragraph{Cross-domain Byzantine capability}
+A Byzantine validator may act in \emph{both} protocol domains during partial activation. It may sign
+source-engine and target-engine messages in the same execution, release a fence share that it never
+durably installed, and authorize source finalization at or above the boundary while it also votes in
+the active target. None of this requires equivocating between two legacy blocks, so a source-side
+non-equivocation assumption does not exclude it. In the fence-only counterexample of
+\cref{cor:cross-split}, this capability lets the residual source and target quorums overlap only in
+the corrupted set. The admitted locked profile instead excludes that residual source quorum through
+\cref{rule:lock,lem:fence-live}; the separate partial-delivery model (\ref{app:spec}) checks the
+fence-only contract at bounded sizes without weakening its Byzantine capability.
+
+\subsection{Replicated state and the engine interface}
+Let the consensus-independent replicated state at height $h$ be
+\begin{equation}
+  X_h=(A_h,P_h),\qquad r_h=\mathrm{root}(X_h),\qquad X_h=\delta_{\mathrm{exec}}(X_{h-1},B_h),
+  \label{eq:state}
+\end{equation}
+where $A_h$ is the execution-layer account and storage state, $P_h$ is platform state (including the
+validator registry and the migration schedule), and $r_h$ is the post-execution root committed in the
+header of $B_h$. Each engine $j$ also keeps local consensus metadata $C^{(j)}_h$ (views, locks,
+certificates). This metadata is deliberately excluded from $r_h$, because heterogeneous engines encode
+it differently. \Cref{tab:notation} lists the notation.
+
+\begin{definition}[Consensus engine]
+\label{def:engine}
+A consensus engine is a tuple $\mathcal C=(\mathsf Q,\mathsf{Final},\mathsf{Root},\mathsf{Init})$.
+Here $\mathsf Q$ is a finalization quorum rule, and $\mathsf{Final}$ is a single-finalizer predicate
+that finalizes at most one block per height once a $\mathsf Q$-quorum endorses it. $\mathsf{Root}$ is
+a deterministic state-root function, and $\mathsf{Init}(r,h)$ initializes $C^{(j)}_h$ from a root and
+a height. The engine is \emph{intersection-safe} if its threshold $q$ satisfies $2q-n>f$. The minimum
+such integer is $\lfloor (n+f)/2\rfloor+1$, which equals $2f+1$ only when $n=3f+1$.
+\end{definition}
+
+\Cref{def:engine} is an assume--guarantee interface. Real BFT safety also depends on durable locks,
+view change, and crash recovery, which the tuple does not reconstruct. \sage{} establishes boundary
+properties \emph{conditional} on each engine conforming to its interface. $\mathsf{Final}$ requires
+\emph{deterministic} finality. This excludes longest-chain sources, whose ``finality'' is a
+confirmation-depth confidence; migrating from such a source would first require a rule for selecting
+and fencing a deterministic prefix. Applicability further requires deterministic state execution, a
+shadow-validation adapter, externally bootstrappable target metadata, durable Rule~\ref{rule:lock}
+and generation fencing, and a registered fixed committee. The evaluated PoA$\to$HotStuff
+network path is partial; Raft$\to$HotStuff is exercised only as a component path
+(\cref{tab:status}).
+
+\Cref{tab:adapter} makes adapter obligations explicit. A new target must discharge native
+finality, shadow, bootstrap, and liveness requirements; the source and controller must also meet
+retirement, recovery, and terminal requirements. Naming an engine proves neither integration
+nor compatibility. Its finality must remain safe across views and restart, not merely satisfy
+a one-view threshold.
+
+\begin{table*}[t]
+\centering
+\caption{Assume--guarantee obligations for a concrete engine adapter. Listed evidence is required,
+not a claim of a full-protocol run or verified Mysticeti, Bullshark, or HotStuff-1 adapters.}
+\label{tab:adapter}
+\small
+\renewcommand{\arraystretch}{1.12}
+\begin{tabularx}{\textwidth}{@{}L{0.18\textwidth}YL{0.28\textwidth}@{}}
+\toprule
+\textbf{Obligation} & \textbf{Required guarantee} & \textbf{Evidence required of an instantiation} \\
+\midrule
+Finality and fault profile & Deterministic finality, authenticated committee identities, quorum policy and admitted corruption set & Engine safety argument including cross-view locking; fault budget and voting-set checks \\
+State and shadow & Same deterministic transition and root on the same ordered inputs; no shadow finalization or external side effects & Root-equivalence and rejection tests using real executed state \\
+Bootstrap & Legacy anchor distinguished from a native target QC; first native certificate obtained from a target quorum & First target proposal/vote/commit trace and rejection of mismatched anchors \\
+Durable source retirement & Persist attestation identity and prohibition atomically before release; serialize every source authorization path; retain later fences & Crash-before/after-write, buffered-send, alternate-handler and post-restart source-action traces \\
+Recovery and activation & Reload Rule~\ref{rule:lock} before source use; reload manifest, generation and certificate records before target authority; fail closed on ambiguity & Reopen/corruption tests and first post-restart signed actions \\
+Conditional liveness & Bounded certificate delivery and durable work; target-specific first-finalization bound after initialization & Engine-specific pacemaker argument and wall-clock execution, not a generic $2\Delta$ assertion \\
+Terminal/client semantics & Abort and seal are exclusive; recovery never revives $g_1$; effective finality retains the original signed receipt & Certified abort/seal race and recovery traces; contextual replay and client proof checks \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{definition}[Target bootstrap]
+\label{def:bootstrap}
+At the certified transition height $\hs=\hb+1\ge\hc$, the target initializes
+$C^{(2)}_{\hs}\gets\Ctgt.\mathsf{Init}(r_{\hs-1},\hs)$. It adopts the legacy-finalized root as its
+genesis anchor and treats the manifest's bootstrap certificate as an authority-transfer anchor, not as
+an ordinary target quorum certificate. In HotStuff, the highest quorum certificate (QC) and lock start empty, and the first
+target-native QC must be formed by a real target quorum. $A$ and $P$ carry over unchanged.
+\end{definition}
+
+A same-engine reconfiguration may also require state transfer and initialization. A heterogeneous
+handoff additionally must translate the certified boundary into the target engine's native metadata;
+the target has no native consensus history on the legacy chain.
+
+\begin{table}[t]
+\centering
+\caption{Notation.}
+\label{tab:notation}
+\small
+\renewcommand{\arraystretch}{1.12}
+\rowcolors{2}{rowtint}{white}
+\begin{tabular}{@{}>{$}l<{$}L{0.66\columnwidth}@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+\VM,\ n,\ f & fixed migration committee, its size, Byzantine bound ($n\ge3f+1$) \\
+\Csrc,\ \Ctgt & source (legacy) and target consensus engines \\
+g_1,\ g_1',\ g_2 & source, fresh recovery-source, and target generations \\
+q,\ q_1,\ q_2,\ q_F & certificate, source, target, and fence quorum sizes \\
+X_h,\ r_h,\ C^{(j)}_h & replicated state, its root, engine-local metadata \\
+\hd,\ \hc,\ \hs,\ \hr & dual-run start, earliest cutover, certified cutover, rollback deadline \\
+\sigma_h,\ \tilde r_h,\ \kappa & shadow verdict, shadow root, stability window \\
+\beta,\ \mathcal M_{\mathrm B} & boundary tuple and complete manifest body \\
+\pi_{\mathrm B},\ \pi_{\mathrm M} & \CutCert{} and \ManCert{} \\
+\Auth(h),\ \tau & authoritative engine at $h$; target progress timeout \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Fault thresholds of the two engines}
+\label{subsec:thresholds}
+Under its non-equivocation assumption, the PoA source finalizes with an honest-majority quorum
+$\mathsf Q_1=\lfloor n/2\rfloor+1$. The target uses $\mathsf Q_2=q_2$ with $2q_2-n>f_2$ and
+$n\ge 3f_2+1$. We instantiate $q_2=n-f_2$, since $2(n-f_2)-n=n-2f_2>f_2$ exactly when $n>3f_2$. The
+smaller admissible $\lfloor(n+f_2)/2\rfloor+1$ is used only in a labelled research control.
+
+A round-robin PoA source tolerates $f_1<n/2$ crash faults, but an honest-majority rule does not stop
+a Byzantine authority from signing two blocks at one height. We therefore admit two source models.
+Under the \emph{crash-only} model, authority keys are trusted not to equivocate. Under the
+\emph{Byzantine} model, the source must enforce non-equivocation per key (for example through attested
+append-only key custody) or use a quorum with $2q_1-n>f_1$. The evaluated PoA source uses the
+crash-only interpretation. SeeMoRe~\cite{seemore} mixes crash-only and Byzantine behaviour inside a
+single protocol. \sage{} faces the mixture across an engine boundary.
+
+During dual-run, safety is bounded by the weaker source engine. This bound predates the migration: a
+chain running $\Csrc$ already tolerates at most $f_1$ faults. \sage{} adds no finalizing authority
+during $[\hd,\hs)$. Its shadow validation adds a detection surface for invalid or semantically
+incompatible execution, but it cannot detect a well-formed malicious block that both engines execute
+identically.
+
+\subsection{Threats and gating mechanisms}
+\label{sec:threat}
+\Cref{fig:threat} places five attack surfaces on the migration timeline and pairs each with the
+mechanism that gates it; \cref{tab:crypto} lists the assumptions each mechanism relies on.
+(T1)~\emph{Key custody}: every certificate relies on signatures that are existentially unforgeable
+under chosen-message attack (EUF-CMA) and on at most $f$ corrupted
+keys. (T2)~\emph{False readiness}: an $n-f$ \CutCert{} contains at least $f+1$ correct signers, and a
+live node checks the certified boundary against its own committed tip. (T3)~\emph{Partition at
+cutover}: a side below $n-f$ cannot form a new \CutCert. Under durable Rule~\ref{rule:lock} and
+$q_1>2f$, a formed \CutCert{} already precludes a source quorum even at non-recipients. Without
+that lock, the separate fence-only contract must exclude overlap confined to Byzantine validators
+(\cref{cor:cross-split}); that corollary's rejected source policy is not an admitted locked
+execution. (T4)~\emph{Manifest supply chain}: the \ManCert{}
+authenticates the complete manifest, including tooling and replay-context hashes. Quorum agreement on
+a tool hash does not make the tool safe, so deployment still needs an allowlist or reproducible
+builds. (T5)~\emph{Progress griefing}: a local timeout restores the certified anchor without changing
+committee authority. Only an $n-f$ \AbortCert{} returns authority, and only to a fresh generation
+$\Csrc^{g_1'}$ with $g_1'>g_1$.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_threat.pdf}
+\caption{Migration attack surfaces (T1--T5) and their protocol gates (M1--M6). The target suffix
+$[\hs,\hr)$ remains provisional until a \SealCert{} promotes it to absolute finality.}
+\label{fig:threat}
+\end{figure*}
+
+\begin{table}[t]
+\centering
+\caption{Cryptographic and combinatorial assumptions, and the result each supports.}
+\label{tab:crypto}
+\small
+\renewcommand{\arraystretch}{1.14}
+\rowcolors{2}{rowtint}{white}
+\begin{tabular}{@{}L{0.42\columnwidth}L{0.52\columnwidth}@{}}
+\toprule
+\textbf{Assumption} & \textbf{Supports} \\
+\midrule
+Collision-resistant $\mathrm{root}(\cdot)$, $\Hash$ & boundary and manifest binding (\cref{th:unforge}) \\
+EUF-CMA signatures & authenticity of every certificate share \\
+Chain-id and epoch binding & replay resistance (\cref{prop:replay}) \\
+$n\ge3f+1$, one committee & certificate intersection (\cref{th:window,th:unique}) \\
+Durable Rule~\ref{rule:lock}, $q=n-f$, $q_1>2f$ & locked-profile source exclusion (\cref{lem:fence-live}) \\
+$q_F+q_1>n+f$, install-before-share & fence-only exclusion (\cref{th:authority-exclusion}); not independently needed under Rule~\ref{rule:lock} \\
+\bottomrule
+\end{tabular}
+\end{table}
